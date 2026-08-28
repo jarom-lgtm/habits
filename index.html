@@ -157,6 +157,7 @@
   .chip.u  { background: var(--warn); border-color: var(--warn); color: #2e2408; }
   .chip.uu { background: #e08a2e; border-color: #e08a2e; color: #2e1c08; }
   .chip.U  { background: var(--danger); border-color: var(--danger); color: #2a0f0f; }
+  .chip.X  { background: #7f1d1d; border-color: #b91c1c; color: #ffd9d9; }
 
   .stepper { display: flex; align-items: center; gap: 10px; }
   .stepper button {
@@ -172,6 +173,7 @@
   .btn.go { background: var(--accent); color: #0b2718; font-weight: 650; }
   .btn.warn { background: var(--warn-deep); color: var(--warn); }
   .btn.danger { background: var(--danger-deep); color: var(--danger); }
+  .btn.stopred { background: var(--danger); color: #2a0f0f; font-weight: 650; }
 
   .note { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 10px 0 14px; }
   .note b { color: var(--text); font-weight: 600; }
@@ -248,9 +250,8 @@
     <div class="grab"></div>
     <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
-    <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Start dates<small>When each streak began</small></span></button>
+    <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
     <button class="row" id="mDemo"><span class="ic">&#9781;</span><span>Load sample data<small>A month of made-up entries to play with</small></span></button>
-    <button class="row" id="mWipe"><span class="ic">&#10005;</span><span>Wipe everything<small>Back to empty, with your real start dates</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
   </div>
 </div>
@@ -267,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v17';
+  var APP_VERSION = 'v18';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -302,9 +303,8 @@
      what someone does for others is presumptuous - and anything typed as
      Other joins the list, so it fits the real pattern within a week or two. */
   var RAK_SEED = [
-    'Held the door for someone',
-    'Picked up trash',
-    'Paid for someone'
+    'Held the door',
+    'Picked up trash'
   ];
   var RAK_MAX = 12;
 
@@ -329,17 +329,22 @@
      Each behaviour is off, -u, -uu or -U. The day's whole allowance is two
      lowercase units or one uppercase Unit, so -uu on one thing spends it all
      just as surely as -u on two things does.                                 */
-  var FIT_CYCLE = ['', 'u', 'uu', 'U'];
+  /* off -> -u -> -U -> -X. X is "I went well past it and blew the day", which
+     is a miss on its own and needs no arithmetic. */
+  var FIT_CYCLE = ['', 'u', 'U', 'X'];
   function fitNext(v) { return FIT_CYCLE[(FIT_CYCLE.indexOf(v || '') + 1) % FIT_CYCLE.length]; }
-  function fitWeight(v) { return v === 'u' ? 1 : v === 'uu' ? 2 : 0; }
 
   function fitOver(items) {
-    var small = 0, big = 0;
+    var small = 0, big = 0, blown = 0;
     Object.keys(items || {}).forEach(function (k) {
-      if (items[k] === 'U') big++; else small += fitWeight(items[k]);
+      if (items[k] === 'X') blown++;
+      else if (items[k] === 'U') big++;
+      else if (items[k] === 'u') small++;
     });
-    // A Unit takes the whole day; lowercase units run out after two.
-    return { small: small, big: big, over: (big > 1) || (big === 1 && small > 0) || (small > 2) };
+    return {
+      small: small, big: big, blown: blown,
+      over: blown > 0 || (big > 1) || (big === 1 && small > 0) || (small > 2)
+    };
   }
 
   /* M is stamped rather than judged by eye: the time the phone goes down
@@ -358,8 +363,11 @@
     if (mins < 60) return 'uu';
     return 'U';
   }
+  // A quarter point per quarter hour past the hour, rather than a whole point
+  // for any part of one - the same granularity the eating window uses.
   function bedPoints(mins) {
-    return (mins !== null && mins >= 60) ? Math.ceil(mins / 60) : 0;
+    if (mins === null || mins < 60) return 0;
+    return Math.ceil((mins / 60) * 4) / 4;
   }
 
   var DEFAULT_STARTS = {
@@ -511,7 +519,8 @@
     if (e.cupS)  c += e.cupS * 3;
     var h = windowHours(e);
     if (h > 8) c += Math.round((h - 8) * 4) / 4;
-    return Math.round(c * 100) / 100;
+    // Always up to the next quarter point - never rounded in his favour.
+    return Math.ceil(c * 4) / 4;
   }
 
   /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
@@ -534,7 +543,7 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, autoPulled: 0, misses: {}, holidaysUsed: {}, depAvail: {}, open: {} };
+    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, depAvail: {}, open: {} };
     var start = parse(state.starts.JUST8);
     var n = daysBetween(start, today);
     if (n < 0) { _j8 = res; return res; }
@@ -579,11 +588,9 @@
         th -= p; bank += p / 3;
       }
 
-      if (bank < 0 && th > 0 && open) {
-        var pull = Math.min(-bank * 3, th);
-        th -= pull; bank += pull / 3;
-        res.autoPulled += pull;
-      }
+      /* Nothing is pulled automatically any more. Spending the reserve is a
+         deliberate act, so the app leaves the 8ANK short and lets him decide -
+         a rescue he did not ask for is a decision taken away from him. */
 
       res.misses[dk] = (bank < 0);                // nothing left to reach for
       d = addDays(d, 1);
@@ -591,7 +598,6 @@
 
     res.bank       = Math.round(bank * 100) / 100;
     res.thank      = Math.round(th * 100) / 100;
-    res.autoPulled = Math.round(res.autoPulled * 100) / 100;
     _j8 = res;
     return res;
   }
@@ -824,10 +830,10 @@
 
     else if (id === 'H2Only') {
       html = head('H2Only', when) +
-        '<div class="note">Clean unless you say otherwise. Only mark it if the streak actually broke.</div>' +
+        '<div class="note">Counted as a hit unless you say otherwise.</div>' +
         '<div class="btns" style="margin-bottom:10px">' +
-          '<button class="btn ' + (!e.broke ? 'go' : 'ghost') + '" data-act="held">Held</button>' +
-          '<button class="btn ' + (e.broke ? 'danger' : 'ghost') + '" data-act="broke">Broke it</button>' +
+          '<button class="btn ' + (!e.broke ? 'go' : 'ghost') + '" data-act="held">Hit</button>' +
+          '<button class="btn ' + (e.broke ? 'danger' : 'ghost') + '" data-act="broke">Miss</button>' +
         '</div>' + '<div class="btns">' + doneBtn() + '</div>';
     }
 
@@ -849,10 +855,15 @@
           '<div class="field"><label>' + label + '</label>' +
             '<select id="rakPick">' +
               '<option value=""' + (mode === '' ? ' selected' : '') + '>Choose one&hellip;</option>' +
-              list.map(function (a) {
+              /* Other sits second, not last: Held the door, Other, Picked up
+                 trash - H O P, which is how he remembers the list. */
+              list.slice(0, 1).map(function (a) {
                 return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
               }).join('') +
-              '<option value="__other"' + (mode === '__other' ? ' selected' : '') + '>Something else&hellip;</option>' +
+              '<option value="__other"' + (mode === '__other' ? ' selected' : '') + '>Other&hellip;</option>' +
+              list.slice(1).map(function (a) {
+                return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
+              }).join('') +
             '</select>' +
           '</div>' +
           (mode === '__other'
@@ -895,8 +906,8 @@
       html = head('STOP', when) +
         '<div class="note">Bank right now: <b>' + fmt(stopBank()) + ' min</b>. A clean day adds one. The streak breaks only if the bank goes below zero.</div>' +
         '<div class="btns" style="margin-bottom:14px">' +
-          '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Clean</button>' +
-          '<button class="btn ' + (e.slip ? 'danger' : 'ghost') + '" data-act="slip">Slipped</button>' +
+          '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Hit</button>' +
+          '<button class="btn ' + (e.slip ? 'danger' : 'ghost') + '" data-act="slip">Miss</button>' +
         '</div>' +
         (e.slip ? '<div class="field"><label>Minutes it cost</label>' +
           '<div class="stepper">' +
@@ -926,9 +937,15 @@
             '<button class="btn ' + (e.bed ? 'ghost' : 'go') + '" data-act="bed">' +
               (e.bed ? 'Stamped ' + e.bed + ' &mdash; tap to clear' : 'I am done with my phone') + '</button>' +
           '</div>' +
+          /* Marking it after the fact is the common case - the phone goes down
+             and does not come back up to be tapped. */
+          (e.bed ? '' :
+            '<div class="btns" style="margin-top:9px">' +
+              '<button class="btn ghost" data-act="bedok">I was in before 12</button>' +
+            '</div>') +
           '<div class="note" style="margin:8px 0 0">' + bedLine + '</div>' +
         '</div>' +
-        '<div class="note">Tap a letter to cycle it: off &rarr; <b>-u</b> &rarr; <b>-uu</b> &rarr; <b>-U</b>. The day allows two <b>u</b>, or one <b>U</b>.</div>' +
+        '<div class="note">Tap a letter to cycle it: off &rarr; <b>-u</b> &rarr; <b>-U</b> &rarr; <b>-X</b>. The day allows two <b>u</b>, or one <b>U</b>. <b>X</b> is a blown day on its own.</div>' +
         '<div class="field"><div class="chips">' +
           FITB.map(function (f) {
             var v = items[f] || '';
@@ -936,12 +953,14 @@
           }).join('') +
         '</div></div>' +
         (tally.over
-          ? '<div class="warnbox">Past the allowance &mdash; ' + tally.small + '&nbsp;u and ' + tally.big + '&nbsp;U. If that is right, mark it missed.</div>'
+          ? (tally.blown
+              ? '<div class="warnbox">An <b>X</b> is a blown day. Mark it missed.</div>'
+              : '<div class="warnbox">Past the allowance &mdash; ' + tally.small + '&nbsp;u and ' + tally.big + '&nbsp;U. If that is right, mark it missed.</div>')
           : '') +
-        '<div class="field"><label>Cover M from the 8ANK &mdash; 1 point an hour</label>' +
+        '<div class="field"><label>Cover M from the 8ANK &mdash; a point an hour, in quarters</label>' +
           '<div class="stepper">' +
             '<button data-act="mpts-">&minus;</button>' +
-            '<div class="val" id="mptsVal">' + (e.mPts || 0) + ' pt</div>' +
+            '<div class="val" id="mptsVal">' + fmt(e.mPts || 0) + ' pt</div>' +
             '<button data-act="mpts+">+</button>' +
           '</div></div>' +
         '<div class="btns">' + missBtn() + doneBtn() + '</div>';
@@ -955,15 +974,16 @@
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
           (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b>' : '') +
           ' &nbsp;&middot;&nbsp; today costs <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
-        (j8().autoPulled
-          ? '<div class="warnbox">The TH8NK has automatically covered <b>' + fmt(j8().autoPulled) +
-            '</b> so far, which reached the 8ANK as <b>' + fmt(j8().autoPulled / 3) + ' pt</b>. ' +
-            'A day only counts as missed once both are spent.</div>'
+        (bank8() < 0
+          ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
+            'cover it from the TH8NK on a TH8NK day, or the day is a miss.</div>'
           : '') +
         '<div class="field"><label>Eating window</label>' +
           '<div class="btns" style="margin-bottom:8px">' +
-            '<button class="btn ' + (e.eatStart ? 'ghost' : 'go') + '" data-act="eatstart">' + (e.eatStart ? 'Started ' + e.eatStart : 'Start eating') + '</button>' +
-            '<button class="btn ' + (e.eatEnd ? 'ghost' : (e.eatStart ? 'go' : 'ghost')) + '" data-act="eatend">' + (e.eatEnd ? 'Stopped ' + e.eatEnd : 'Stop eating') + '</button>' +
+            // Green opens the window, red closes it - the colours carry the
+            // meaning so neither button has to be read.
+            '<button class="btn go" data-act="eatstart">' + (e.eatStart ? 'Started ' + e.eatStart : 'Start eating') + '</button>' +
+            '<button class="btn stopred" data-act="eatend">' + (e.eatEnd ? 'Stopped ' + e.eatEnd : 'Stop eating') + '</button>' +
           '</div>' +
           (e.eatStart && e.eatEnd
             ? '<div class="note" style="margin:0">Window <b>' + fmt(Math.round(h8 * 4) / 4) + ' h</b>' + (h8 > 8 ? ' &mdash; ' + fmt(Math.round((h8 - 8) * 4) / 4) + ' over, costs ' + fmt(Math.round((h8 - 8) * 4) / 4) + ' pt' : ' &mdash; inside the window') + '</div>'
@@ -1075,8 +1095,8 @@
         if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); e.done = (e.min >= WERK_FULL); commit(true); return; }
         if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
         if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
-        if (a === 'mpts-') { e.mPts = Math.max(0, (e.mPts || 0) - 1); commit(true); return; }
-        if (a === 'mpts+') { e.mPts = (e.mPts || 0) + 1; commit(true); return; }
+        if (a === 'mpts-') { e.mPts = Math.max(0, Math.round(((e.mPts || 0) - 0.25) * 100) / 100); commit(true); return; }
+        if (a === 'mpts+') { e.mPts = Math.round(((e.mPts || 0) + 0.25) * 100) / 100; commit(true); return; }
 
         if (a === 'cups-') { e.cups = Math.max(0, Math.round(((e.cups || 0) - 0.25) * 100) / 100); commit(true); return; }
         if (a === 'cups+') { e.cups = Math.round(((e.cups || 0) + 0.25) * 100) / 100; commit(true); return; }
@@ -1085,6 +1105,12 @@
 
         /* Stamping the time grades M by itself and sets the points it costs.
            Both stay adjustable below - the clock reports, it does not rule. */
+        if (a === 'bedok') {
+          e.bed = '23:00';                       // stands for "in before twelve"
+          if (e.items) delete e.items.M;
+          e.mPts = 0; e.logged = true;
+          commit(true); toast('In before 12'); return;
+        }
         if (a === 'bed') {
           if (e.bed) { e.bed = ''; if (e.items) delete e.items.M; e.mPts = 0; commit(true); return; }
           e.bed = nowHM();
@@ -1160,7 +1186,10 @@
                  'paid for the car behind me', 'carried groceries for a neighbour',
                  'let someone merge', 'shovelled next door', 'left a tip for the cleaner'];
 
-    var days = {}, d = parse('2026-08-01'), end = today;
+    /* Stops at yesterday. Today is left blank on purpose so the ticking is
+       his to do - a day that arrives already complete gives nothing to mark,
+       and marking it is half the point. */
+    var days = {}, d = parse('2026-08-01'), end = addDays(today, -1);
     while (daysBetween(d, end) >= 0) {
       var dk = key(d), day = {};
 
@@ -1222,15 +1251,6 @@
   /* ---------------- menu ---------------- */
   document.getElementById('menu').addEventListener('click', function () { openOv('ovMenu'); });
   document.getElementById('mDemo').addEventListener('click', function () { closeOv('ovMenu'); loadDemo(); });
-  document.getElementById('mWipe').addEventListener('click', function () {
-    closeOv('ovMenu');
-    sheetEl.innerHTML = head('Wipe everything?', 'This cannot be undone') +
-      '<div class="note">Every entry goes, and the start dates return to your real ones. Export first if there is anything here worth keeping.</div>' +
-      '<div class="btns"><button class="btn ghost" data-act="x">Keep it</button><button class="btn danger" data-act="go">Wipe</button></div>';
-    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
-    sheetEl.querySelector('[data-act="go"]').addEventListener('click', function () { closeOv('ovSheet'); wipeAll(); });
-    openOv('ovSheet');
-  });
 
   function shortDate(s) {
     return parse(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1289,7 +1309,7 @@
 
   document.getElementById('mStarts').addEventListener('click', function () {
     closeOv('ovMenu');
-    sheetEl.innerHTML = head('Start dates', 'When each streak began') +
+    sheetEl.innerHTML = head("Original start dates", "When each one first began") +
       HABITS.map(function (h) {
         return '<div class="field"><label>' + h.id + '</label>' +
           '<input type="text" data-start="' + h.id + '" value="' + state.starts[h.id] + '" placeholder="YYYY-MM-DD" autocomplete="off"></div>';
