@@ -57,9 +57,17 @@
   }
   .arrow:active, .menubtn:active { background: var(--card-hi); }
   .arrow[disabled] { opacity: .22; }
-  .daylabel { flex: 1; text-align: center; min-width: 0; }
+  .daylabel { flex: 1; text-align: center; min-width: 0; position: relative; }
   .daylabel .big { font-size: 18px; font-weight: 650; letter-spacing: -.2px; }
-  .daylabel .small { font-size: 11.5px; color: var(--dim); margin-top: 1px; }
+  .daylabel .small { font-size: 11.5px; color: var(--dim); margin-top: 1px; border-bottom: 1px dotted var(--dimmer); display: inline-block; padding-bottom: 1px; }
+  /* Transparent native date input laid over the label. Tapping the date opens
+     the phone's own picker, so any past day is one hop away instead of a run
+     of arrow taps - which matters after a stretch offline. */
+  .daylabel input[type=date] {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; border: 0; padding: 0; background: none;
+    -webkit-appearance: none; appearance: none;
+  }
 
   .banks { display: flex; gap: 6px; margin-top: 10px; }
   .bank {
@@ -187,6 +195,7 @@
     <div class="daylabel">
       <div class="big" id="dayBig">Today</div>
       <div class="small" id="daySmall"></div>
+      <input type="date" id="datePick" aria-label="Jump to a day">
     </div>
     <button class="arrow" id="next" aria-label="Next day">&rsaquo;</button>
     <button class="menubtn" id="menu" aria-label="Menu">&#8943;</button>
@@ -467,6 +476,12 @@
     if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) {
       return 'starts ' + parse(state.starts[id]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
+    // A broken day says so plainly, whichever habit it is.
+    if (missedOn(dk, id)) {
+      if (id === 'H2Only') return 'Broke it';
+      if (id === 'STOP')   return 'Bank went negative';
+      return 'Missed';
+    }
     if (!e) return h.hint;
 
     switch (id) {
@@ -508,6 +523,13 @@
     document.getElementById('daySmall').textContent =
       viewing.toLocaleDateString(undefined, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
     document.getElementById('next').disabled = (viewing >= today);
+
+    // Never offer a day before the oldest streak began, or a day in the future.
+    var dp = document.getElementById('datePick');
+    var earliest = HABITS.map(function (h) { return state.starts[h.id]; }).sort()[0];
+    dp.min = earliest;
+    dp.max = key(today);
+    dp.value = key(viewing);
 
     var b8 = bank8(), th = thank(), sb = stopBank();
     document.getElementById('banks').innerHTML =
@@ -741,7 +763,12 @@
         var a = b.getAttribute('data-act');
 
         if (a === 'close') { commit(false); closeOv('ovSheet'); return; }
-        if (a === 'miss')  { e.miss = true; e.done = false; commit(false); closeOv('ovSheet'); toast(id + ' marked missed'); return; }
+        if (a === 'miss')  {
+          e.miss = true; e.done = false; commit(false); closeOv('ovSheet');
+          // Name the day back, since a miss is often entered days after the fact.
+          toast(id + ' missed on ' + parse(dk).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+          return;
+        }
         if (a === 'done')  { e.done = !e.done; e.miss = false; commit(true); return; }
         if (a === 'held')  { e.broke = false; e.logged = true; commit(true); return; }
         if (a === 'broke') { e.broke = true;  e.logged = true; commit(true); return; }
@@ -825,7 +852,8 @@
     sheetEl.innerHTML = head('About', 'Where this lives') +
       '<div class="note">' +
       'Everything you tap stays on this phone. Nothing is uploaded, there is no account, and it works with no signal.<br><br>' +
-      'A streak breaks only when you mark a miss. Skipping a day without opening the app does not break anything.<br><br>' +
+      '<b>Every streak holds by default.</b> Days you never opened the app still count as kept. Nothing breaks until you say it broke.<br><br>' +
+      'To record a miss after the fact, <b>tap the date at the top</b>, pick the day it happened, then open that habit and choose Mark missed. Same for filling in details from days you were offline.<br><br>' +
       'Because the data is only here, use <b>Export for Claude</b> now and then so the history reaches HEALTH.md. Clearing this browser\'s site data erases everything, so export before doing that.' +
       '</div><div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
@@ -903,6 +931,14 @@
   /* ---------------- nav ---------------- */
   document.getElementById('prev').addEventListener('click', function () { viewing = addDays(viewing, -1); render(); });
   document.getElementById('next').addEventListener('click', function () { if (viewing < today) { viewing = addDays(viewing, 1); render(); } });
+
+  document.getElementById('datePick').addEventListener('change', function () {
+    if (!this.value) return;
+    var d = parse(this.value);
+    if (isNaN(d.getTime()) || d > today) { this.value = key(viewing); return; }
+    viewing = startOfDay(d);
+    render();
+  });
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState !== 'visible') return;
