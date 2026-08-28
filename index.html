@@ -176,6 +176,30 @@
   .note b { color: var(--text); font-weight: 600; }
   .warnbox { background: var(--warn-deep); border: 1px solid #5a4a1c; color: var(--warn); border-radius: 11px; padding: 11px 13px; font-size: 13px; line-height: 1.45; margin-bottom: 14px; }
 
+  /* streak history */
+  .srow {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 12px; border-radius: 12px; background: var(--bg);
+    border: 1px solid var(--line); margin-bottom: 8px;
+  }
+  .srow:active { background: var(--card-hi); }
+  .srow .sn { flex: 1; min-width: 0; }
+  .srow .sn b { display: block; font-size: 15.5px; font-weight: 620; }
+  .srow .sn small { display: block; font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+  .srow .sv { text-align: right; flex: 0 0 auto; }
+  .srow .sv b { display: block; font-size: 16px; font-weight: 650; }
+  .srow .sv small { display: block; font-size: 10px; color: var(--dim); }
+
+  .seg {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    padding: 10px 12px; border-radius: 10px; background: var(--bg);
+    border: 1px solid var(--line); margin-bottom: 7px; font-size: 13.5px;
+  }
+  .seg.cur { border-color: var(--accent-edge); background: var(--accent-deep); }
+  .seg .sd { color: var(--dim); font-size: 12px; }
+  .seg.cur .sd { color: #9fd9b8; }
+  .seg b { font-weight: 650; white-space: nowrap; }
+
   .row { display: flex; align-items: center; gap: 12px; padding: 14px 10px; border-radius: 11px; width: 100%; font-size: 16px; text-align: left; }
   .row:active { background: var(--card-hi); }
   .row .ic { width: 20px; text-align: center; }
@@ -223,6 +247,7 @@
   <div class="sheet">
     <div class="grab"></div>
     <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
+    <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Start dates<small>When each streak began</small></span></button>
     <button class="row" id="mDemo"><span class="ic">&#9781;</span><span>Load sample data<small>A month of made-up entries to play with</small></span></button>
     <button class="row" id="mWipe"><span class="ic">&#10005;</span><span>Wipe everything<small>Back to empty, with your real start dates</small></span></button>
@@ -242,7 +267,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v13';
+  var APP_VERSION = 'v14';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -254,15 +279,16 @@
 
   // kind: 'do'      - tapping records that it happened
   //       'avoid'   - clean by default; tapping records that it did NOT hold
+  // H S J B W R F N - the order they are worked through in a day.
   var HABITS = [
-    { id: 'H2Only',   kind: 'avoid', hint: 'Water only' },
-    { id: 'RAK',      kind: 'do',    hint: 'One act, plus what it was' },
-    { id: 'JUST8',    kind: 'do',    hint: '8-hour window, Cups and CupS' },
-    { id: 'BED',      kind: 'do',    hint: 'Made it' },
-    { id: 'WERKOUTS', kind: 'do',    hint: '31+ min, and which kinds' },
-    { id: 'STOP',     kind: 'avoid', hint: 'Clean days bank a minute each' },
-    { id: 'FIT',      kind: 'avoid', hint: 'M T W TH F, at u or U' },
-    { id: 'NOTE',     kind: 'do',    hint: 'Written, and to whom' }
+    { id: 'H2Only',   kind: 'avoid' },
+    { id: 'STOP',     kind: 'avoid' },
+    { id: 'JUST8',    kind: 'do'    },
+    { id: 'BED',      kind: 'do'    },
+    { id: 'WERKOUTS', kind: 'do'    },
+    { id: 'RAK',      kind: 'do'    },
+    { id: 'FIT',      kind: 'avoid' },
+    { id: 'NOTE',     kind: 'do'    }
   ];
 
   var WERK  = ['W', 'E', 'R', 'K', 'O', 'U', 'T', 'S'];
@@ -407,6 +433,33 @@
     return null;
   }
 
+  /* Every run this habit has ever had, worked out from the recorded misses.
+     The original start date is never overwritten when something breaks - a
+     break opens a new run alongside the old ones rather than erasing when the
+     whole thing began. Eight years of history should survive one bad Tuesday. */
+  function streakSegments(id) {
+    var out = [];
+    var start = parse(state.starts[id]);
+    var n = daysBetween(start, today);
+    if (n < 0) return out;
+
+    var runStart = start, d = start;
+    for (var i = 0; i <= n; i++) {
+      if (missedOn(key(d), id)) {
+        var last = addDays(d, -1);
+        if (daysBetween(runStart, last) >= 0) {
+          out.push({ from: key(runStart), to: key(last), days: daysBetween(runStart, last) + 1 });
+        }
+        runStart = addDays(d, 1);
+      }
+      d = addDays(d, 1);
+    }
+    if (daysBetween(runStart, today) >= 0) {
+      out.push({ from: key(runStart), to: key(today), days: daysBetween(runStart, today) + 1, current: true });
+    }
+    return out;
+  }
+
   function streak(id) {
     var start = parse(state.starts[id]);
     if (daysBetween(start, today) < 0) return -1;         // hasn't begun yet
@@ -545,7 +598,7 @@
 
   /* ---------------- STOP bank ----------------
      Every day without a slip banks a minute; a slip spends the minutes it
-     cost. Minutes can also be cashed out at $10 each.                         */
+     cost.                                                                    */
   function stopBank() {
     var start = parse(state.starts.STOP);
     var n = daysBetween(start, today);
@@ -554,7 +607,6 @@
     for (var i = 0; i <= n; i++) {
       var e = get(key(d), 'STOP');
       if (e && e.slip) bank -= (e.min || 0); else bank += 1;
-      if (e && e.cashed) bank -= e.cashed;
       d = addDays(d, 1);
     }
     return bank;
@@ -570,7 +622,6 @@
     for (var i = 0; i <= n; i++) {
       var dk = key(d), e = get(dk, 'STOP');
       if (e && e.slip) bank -= (e.min || 0); else bank += 1;
-      if (e && e.cashed) bank -= e.cashed;
       var isMiss = bank < 0;
       if (isMiss !== !!(e && e.miss)) {
         var t = entry(dk, 'STOP', true);
@@ -611,52 +662,21 @@
     }
   }
 
+  /* The card carries the name and the streak, and otherwise stays quiet.
+     Status lines - "Held", "Made", "Clean" - restated on every row what the
+     colour already said, and made a list of eight look like a list of chores.
+     The only thing worth the second line is something actually written down:
+     the act, or the person. */
   function summary(dk, id) {
     var e = get(dk, id);
-    var h = HABITS.filter(function (x) { return x.id === id; })[0];
     if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) {
       return 'starts ' + parse(state.starts[id]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
-    // A broken day says so plainly, whichever habit it is.
-    if (missedOn(dk, id)) {
-      if (id === 'H2Only') return 'Broke it';
-      if (id === 'STOP')   return 'Bank went negative';
-      if (id === 'JUST8' && e && e.bankMiss && !e.miss) return '8ANK and TH8NK both spent';
-      return 'Missed';
-    }
-    if (!e) return h.hint;
-
-    switch (id) {
-      case 'H2Only':   return e.broke ? 'Broke it' : (e.logged ? 'Held' : h.hint);
-      case 'RAK':      return e.note ? e.note : (e.done ? 'Done' : h.hint);
-      case 'NOTE':     return e.who ? 'Wrote to ' + e.who : (e.done ? 'Done' : h.hint);
-      case 'BED':      return e.done ? 'Made' : h.hint;
-      case 'WERKOUTS':
-        if (!e.done && !e.min) return h.hint;
-        return (e.min || 0) + ' min' + (e.types && e.types.length ? '  ' + e.types.join('') : '');
-      case 'STOP':
-        if (e.miss) return 'Bank went negative';
-        if (e.slip) return 'Slip: ' + (e.min || 0) + ' min';
-        return e.logged ? 'Clean' : h.hint;
-      case 'FIT':
-        if (e.miss) return 'Missed';
-        var it = e.items || {}, ks = Object.keys(it);
-        if (!ks.length) return (e.bed ? e.bed + ' &middot; clean' : (e.logged ? 'Clean' : h.hint)).replace('&middot;', '·');
-        return ks.map(function (k) { return k + '-' + it[k]; }).join('  ');
-      case 'JUST8':
-        if (e.miss) return 'Missed';
-        var bits = [];
-        if (e.trav === 'T') bits.push('TH8NK day');
-        if (e.trav === 'H') bits.push('Holiday');
-        if (e.eatStart && e.eatEnd) bits.push(fmt(Math.round(windowHours(e) * 4) / 4) + 'h window');
-        else if (e.eatStart) bits.push('eating since ' + e.eatStart);
-        if (e.cups) bits.push(e.cups + 'c');
-        if (e.cupS) bits.push(e.cupS + 'C');
-        var cost = j8DayCost(e);
-        if (cost) bits.push('-' + fmt(cost) + 'pt');
-        return bits.length ? bits.join('  ') : h.hint;
-    }
-    return h.hint;
+    if (missedOn(dk, id)) return 'Missed';
+    if (!e) return '';
+    if (id === 'RAK')  return e.note || '';
+    if (id === 'NOTE') return e.who || '';
+    return '';
   }
 
   function render() {
@@ -699,7 +719,10 @@
         '<div class="body"><div class="name"></div><div class="meta"></div></div>' +
         '<div class="streak"><b>' + (s < 0 ? '-' : s.toLocaleString()) + '</b><span>' + (s < 0 ? 'soon' : 'days') + '</span></div>';
       el.querySelector('.name').textContent = h.id;
-      el.querySelector('.meta').textContent = summary(dk, h.id);
+      var sub = summary(dk, h.id);
+      var metaEl = el.querySelector('.meta');
+      metaEl.textContent = sub;
+      metaEl.style.display = sub ? '' : 'none';   // no empty line pushing the name off centre
 
       el.querySelector('[data-tick]').addEventListener('click', function (ev) {
         ev.stopPropagation();
@@ -829,12 +852,6 @@
             '<div class="val" id="sminVal">' + (e.min || 0) + '</div>' +
             '<button data-act="smin+">+</button>' +
           '</div></div>' : '') +
-        '<div class="field"><label>Cash out minutes &mdash; $10 each</label>' +
-          '<div class="stepper">' +
-            '<button data-act="cash-">&minus;</button>' +
-            '<div class="val" id="cashVal">' + (e.cashed || 0) + ' &rarr; $' + ((e.cashed || 0) * 10) + '</div>' +
-            '<button data-act="cash+">+</button>' +
-          '</div></div>' +
         '<div class="btns">' + doneBtn() + '</div>';
     }
 
@@ -978,8 +995,6 @@
         if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); e.done = (e.min >= WERK_FULL); commit(true); return; }
         if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
         if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
-        if (a === 'cash-') { e.cashed = Math.max(0, (e.cashed || 0) - 1); commit(true); return; }
-        if (a === 'cash+') { e.cashed = (e.cashed || 0) + 1; commit(true); return; }
         if (a === 'mpts-') { e.mPts = Math.max(0, (e.mPts || 0) - 1); commit(true); return; }
         if (a === 'mpts+') { e.mPts = (e.mPts || 0) + 1; commit(true); return; }
 
@@ -1136,6 +1151,61 @@
     openOv('ovSheet');
   });
 
+  function shortDate(s) {
+    return parse(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function openStreaks() {
+    sheetEl.innerHTML = head('Streaks', 'Tap one for its full history') +
+      HABITS.map(function (h) {
+        var segs = segsOf(h.id);
+        var cur  = segs.filter(function (s) { return s.current; })[0];
+        var best = segs.reduce(function (m, s) { return Math.max(m, s.days); }, 0);
+        var breaks = segs.filter(function (s) { return !s.current; }).length;
+        return '<button class="srow" data-hab="' + h.id + '">' +
+          '<span class="sn"><b>' + h.id + '</b><small>since ' + shortDate(state.starts[h.id]) +
+            (breaks ? ' &middot; ' + breaks + ' break' + (breaks === 1 ? '' : 's') : ' &middot; never broken') + '</small></span>' +
+          '<span class="sv"><b>' + (cur ? cur.days.toLocaleString() : '0') + '</b><small>now</small></span>' +
+          '<span class="sv" style="margin-left:12px"><b>' + best.toLocaleString() + '</b><small>best</small></span>' +
+        '</button>';
+      }).join('') +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
+
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-hab]'), function (b) {
+      b.addEventListener('click', function () { openHabitStreaks(b.getAttribute('data-hab')); });
+    });
+    openOv('ovSheet');
+  }
+
+  // Cheap memo - the walk is the same for a whole sheet render.
+  var _segs = {};
+  function segsOf(id) {
+    if (!_segs[id]) _segs[id] = streakSegments(id);
+    return _segs[id];
+  }
+
+  function openHabitStreaks(id) {
+    var segs = segsOf(id).slice().reverse();     // newest first
+    var best = segs.reduce(function (m, s) { return Math.max(m, s.days); }, 0);
+    sheetEl.innerHTML = head(id, 'Started ' + shortDate(state.starts[id]) + ' &middot; best ' + best.toLocaleString() + ' days') +
+      (segs.length
+        ? segs.map(function (s) {
+            return '<div class="seg' + (s.current ? ' cur' : '') + '">' +
+              '<span class="sd">' + shortDate(s.from) + ' &rarr; ' + (s.current ? 'now' : shortDate(s.to)) + '</span>' +
+              '<b>' + s.days.toLocaleString() + ' day' + (s.days === 1 ? '' : 's') +
+              (s.days === best && best > 0 ? ' &starf;' : '') + '</b></div>';
+          }).join('')
+        : '<div class="note">Not started yet.</div>') +
+      '<div class="btns"><button class="btn ghost" data-act="back">Back</button></div>';
+    sheetEl.querySelector('[data-act="back"]').addEventListener('click', openStreaks);
+    openOv('ovSheet');
+  }
+
+  document.getElementById('mStreaks').addEventListener('click', function () {
+    closeOv('ovMenu'); _segs = {}; openStreaks();
+  });
+
   document.getElementById('mStarts').addEventListener('click', function () {
     closeOv('ovMenu');
     sheetEl.innerHTML = head('Start dates', 'When each streak began') +
@@ -1179,11 +1249,26 @@
     o.push('');
     HABITS.forEach(function (h) {
       var s = streak(h.id);
-      var m = lastMiss(h.id);
+      var segs = streakSegments(h.id);
+      var best = segs.reduce(function (m2, x) { return Math.max(m2, x.days); }, 0);
+      var breaks = segs.filter(function (x) { return !x.current; }).length;
       o.push(h.id + '  -  start ' + state.starts[h.id] +
-             '  |  streak ' + (s < 0 ? 'not started' : s + ' d') +
-             '  |  last miss ' + (m ? key(m) : 'none'));
+             '  |  now ' + (s < 0 ? 'not started' : s + ' d') +
+             '  |  best ' + best + ' d' +
+             '  |  breaks ' + breaks);
     });
+
+    o.push('');
+    o.push('EVERY STREAK');
+    HABITS.forEach(function (h) {
+      var segs = streakSegments(h.id);
+      if (!segs.length) return;
+      o.push(h.id + ':');
+      segs.slice().reverse().forEach(function (x) {
+        o.push('  ' + x.from + ' -> ' + (x.current ? 'now' : x.to) + '  ' + x.days + ' d' + (x.current ? '  (current)' : ''));
+      });
+    });
+
     o.push('');
     o.push('DAILY LOG');
     Object.keys(state.days).sort().reverse().forEach(function (dk) {
@@ -1196,7 +1281,6 @@
         if (e.broke) p.push('broke');
         if (e.done) p.push('done');
         if (e.slip) p.push('slip' + (e.min || 0));
-        if (e.cashed) p.push('cash' + e.cashed);
         if (h.id === 'WERKOUTS' && e.min) p.push(e.min + 'min');
         if (e.types && e.types.length) p.push(e.types.join(''));
         if (e.note) p.push('"' + e.note + '"');
