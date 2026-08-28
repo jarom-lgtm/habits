@@ -1,6 +1,6 @@
 /* Habits - offline service worker.
    Bump CACHE whenever a file below changes, so phones pick the update up. */
-var CACHE = 'habits-v16';
+var CACHE = 'habits-v17';
 
 /* './' is deliberately NOT listed. Caching both './' and './index.html' stores
    the same page under two keys that drift apart, and the stale one wins - which
@@ -52,7 +52,12 @@ self.addEventListener('fetch', function (e) {
      worth having, and offline still works through the catch below. */
   if (e.request.mode === 'navigate') {
     e.respondWith(
-      fetch(e.request)
+      /* cache:'reload' matters more than it looks. GitHub Pages serves this
+         page with max-age=600, so a plain fetch() is allowed to be answered
+         from the browser's own HTTP cache - meaning "network first" could
+         still hand back a ten minute old page and an update would appear not
+         to have landed. This forces it past that cache to the server. */
+      fetch(e.request.url, { cache: 'reload', credentials: 'same-origin' })
         .then(function (res) {
           var copy = res.clone();
           caches.open(CACHE).then(function (c) { c.put('./index.html', copy); });
@@ -68,7 +73,7 @@ self.addEventListener('fetch', function (e) {
   if (url.pathname === self.registration.scope.replace(self.location.origin, '') ||
       /\/(index\.html)?$/.test(url.pathname)) {
     e.respondWith(
-      fetch(e.request)
+      fetch(e.request.url, { cache: 'reload', credentials: 'same-origin' })
         .then(function (res) {
           var copy = res.clone();
           caches.open(CACHE).then(function (c) { c.put('./index.html', copy); });

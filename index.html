@@ -267,7 +267,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v16';
+  var APP_VERSION = 'v17';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -1437,7 +1437,14 @@
   else render();
 
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    window.addEventListener('load', function () {
+      /* updateViaCache:'none' keeps the worker script itself out of the HTTP
+         cache. Without it the browser may reuse a copy for up to ten minutes
+         and simply not notice a new version had shipped. */
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+        .then(function (reg) { reg.update(); })
+        .catch(function () {});
+    });
   }
 })();
 </script>
