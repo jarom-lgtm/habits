@@ -1,28 +1,38 @@
-# Habits — an offline habit tracker for Jarom's phone
+# Habits
 
-A single-page PWA. Install it to the home screen and it opens full-screen, works
-with no signal, and keeps every tap on the phone itself. No account, no server,
-no analytics, nothing uploaded.
+A private, offline habit tracker. Install it to the phone home screen and it
+opens full-screen, works with no signal, and keeps every entry on the device.
+No account, no server, no analytics, nothing uploaded.
 
-## Why it is built this way
+## Acronyms only, on purpose
 
-- **No framework, no CDN, no external fonts.** Everything the app needs is in
-  `index.html`. A page that reaches out to a CDN is a page that breaks the first
-  time it opens on aeroplane mode, which defeats the point.
-- **`localStorage`, not a database.** The whole point is that the data never
-  leaves the device. The trade-off is that clearing site data wipes it, which is
-  what the export is for.
-- **Habits are defined in the app, not baked into the code.** They get added on
-  the phone, so the tracker reflects what is actually being done rather than
-  what was planned in advance.
+The eight habits are referred to here and in the code **only** by their
+acronyms — H2Only, RAK, JUST8, BED, WERKOUTS, STOP, FIT, NOTE — and the FIT
+behaviours only by their letters. What any of them stand for is not written
+down anywhere in this repository. That lives in `HEALTH.md` on the owner's
+machine, which is never published.
 
-## The relationship to `HEALTH.md`
+This repo is public so GitHub Pages can serve it for free. The acronyms are
+meaningless to anyone else, and no tracked data is ever stored here — so a
+stranger who found this would see an empty app and learn nothing.
 
-`HEALTH.md` in the parent project is the real record. This app is the daily
-capture surface feeding it. Menu → **Export for Claude** produces a plain-text
-summary plus a JSON backup; pasting that into a Claude session is what moves the
-history into `HEALTH.md`. The app is deliberately not the source of truth — it
-lives on one device and one device can be lost.
+## How it behaves
+
+- **A streak breaks only when a miss is explicitly recorded.** Not opening the
+  app for a week does nothing. The alternative — treating an untapped day as a
+  failure — would let one forgotten evening erase a streak years long, which
+  makes the app actively harmful to the thing it is meant to protect.
+- **Three states per day:** green (clean or done), amber (something was
+  recorded that cost points, but the streak holds), red (missed).
+- **The app never overrules the user.** It shows when an entry is past an
+  allowance, but marking the day missed is always a deliberate tap.
+
+## Data
+
+Everything lives in one `localStorage` key on the phone. That is the whole
+point, and it has one consequence worth stating plainly: clearing the browser's
+site data erases the history. **Export for Claude** in the menu produces a
+plain-text summary plus a JSON backup for exactly this reason.
 
 ## Files
 
@@ -32,13 +42,14 @@ lives on one device and one device can be lost.
 | `sw.js` | Service worker; caches the shell so it opens offline |
 | `manifest.webmanifest` | Makes it installable and full-screen |
 | `icon-*.png` | Home-screen icons, generated (see below) |
-| `_icon-src.html` | Source art for the icons; not served to the phone |
+| `_icon-src.html` | Source art for the icons; not part of the app |
 
 ## Updating it
 
-Edit the files, then **bump `CACHE` in `sw.js`** (`habits-v1` → `habits-v2`).
-Phones hold the old version until that string changes, so an edit without a bump
-looks like nothing happened.
+Edit, then **bump `CACHE` in `sw.js`** (`habits-v3` → `habits-v4`). Phones hold
+the old version until that string changes, so an edit without a bump looks like
+nothing happened. Even with a bump, an already-open app may need one extra
+close-and-reopen before the new version takes.
 
 ## Regenerating the icons
 
@@ -57,9 +68,9 @@ done
       --window-size=512,512 --screenshot="$D\\icon-512-maskable.png" "$SRC?size=512&maskable=1"
 ```
 
-The art is pinned to exact pixels rather than `vw` units because headless Chrome
-does not size its viewport from `--window-size`; anything viewport-relative
-renders at the wrong scale and gets cropped.
+The art is pinned to exact pixels rather than `vw` units because headless
+Chrome does not size its viewport from `--window-size`; anything
+viewport-relative renders at the wrong scale and gets cropped.
 
 ## Testing locally
 
