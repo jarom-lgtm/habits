@@ -241,7 +241,15 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var KEY = 'habits.v2';
+  var APP_VERSION = 'v12';
+
+  /* Adding ?sandbox to the address gives a completely separate practice copy:
+     its own storage, seeded with sample entries, which the real tracking can
+     never see and which can never overwrite it. Testing a system meant to hold
+     multi-year streaks against the same store that holds them is not worth the
+     risk of one wrong tap. */
+  var SANDBOX = /[?&]sandbox\b/i.test(location.search);
+  var KEY = SANDBOX ? 'habits.sandbox' : 'habits.v2';
 
   // kind: 'do'      - tapping records that it happened
   //       'avoid'   - clean by default; tapping records that it did NOT hold
@@ -600,7 +608,7 @@
       case 'JUST8':
         if (e.miss) return 'Missed';
         var bits = [];
-        if (e.trav === 'T') bits.push('Travel');
+        if (e.trav === 'T') bits.push('TH8NK day');
         if (e.trav === 'H') bits.push('Holiday');
         if (e.eatStart && e.eatEnd) bits.push(fmt(Math.round(windowHours(e) * 4) / 4) + 'h window');
         else if (e.eatStart) bits.push('eating since ' + e.eatStart);
@@ -630,7 +638,11 @@
     dp.max = key(today);
     dp.value = key(viewing);
 
-    document.getElementById('demobar').classList.toggle('on', !!state.demo);
+    var db = document.getElementById('demobar');
+    db.classList.toggle('on', SANDBOX || !!state.demo);
+    db.innerHTML = SANDBOX
+      ? 'SANDBOX &mdash; practice only, none of this is real &middot; tap to reset'
+      : 'SAMPLE DATA &mdash; tap to wipe and start clean';
 
     var b8 = bank8(), th = thank(), sb = stopBank();
     document.getElementById('banks').innerHTML =
@@ -841,12 +853,18 @@
             '<div class="val" id="cupSVal">' + fmt(e.cupS || 0) + '</div>' +
             '<button data-act="cupS+">+</button>' +
           '</div></div>' +
-        '<div class="field"><label>Is today Travel or a Holiday? &mdash; the TH8NK only opens on these</label>' +
+        '<div class="field"><label>The TH8NK only opens on a TH8NK day</label>' +
           '<div class="btns">' +
-            '<button class="btn ' + (e.trav === 'T' ? 'go' : 'ghost') + '" data-act="trav">Travel</button>' +
-            '<button class="btn ' + (e.trav === 'H' ? 'go' : 'ghost') + '" data-act="holi">Holiday</button>' +
+            '<button class="btn ' + (e.trav ? 'go' : 'ghost') + '" data-act="tday">' +
+              (e.trav ? 'TH8NK day &#10003;' : 'Make it a TH8NK day') + '</button>' +
           '</div>' +
-          '<div class="note" style="margin:8px 0 0">' + holidayNote() + '</div>' +
+          (e.trav
+            ? '<div class="btns" style="margin-top:9px">' +
+                '<button class="btn ' + (e.trav === 'H' ? 'go' : 'ghost') + '" data-act="holi">' +
+                  (e.trav === 'H' ? 'Holiday &#10003;' : 'It was a holiday') + '</button>' +
+              '</div>' +
+              '<div class="note" style="margin:8px 0 0">' + holidayNote() + '</div>'
+            : '') +
         '</div>' +
         (j8().open[dk]
           ? '<div class="field"><label>Pull from TH8NK &mdash; arrives at a third (' + fmt(thank()) + ' there)</label>' +
@@ -854,7 +872,7 @@
             '</div>'
           : '<div class="note">The TH8NK is shut today' +
             (e.trav === 'H' ? ' &mdash; this year\'s 8 holidays are already used' : '') +
-            '. ' + (e.trav ? '' : 'Mark Travel or Holiday above to reach it. ') +
+            '. ' + (e.trav ? '' : 'Mark it a TH8NK day above to reach it. ') +
             'An 8ANK below zero is a miss while it stays shut.</div>') +
         '<div class="field"><label>Put 3 into the TH8NK &mdash; lands as 4' + (e.thankDep ? ' (' + e.thankDep + ' in today)' : '') +
           ' &middot; ' + fmt(j8().depAvail[dk] || 0) + ' spare today</label>' +
@@ -918,11 +936,12 @@
         if (a === 'eatstart') { e.eatStart = e.eatStart ? '' : nowHM(); commit(true); return; }
         if (a === 'eatend')   { e.eatEnd   = e.eatEnd   ? '' : nowHM(); commit(true); return; }
 
-        if (a === 'trav') { e.trav = (e.trav === 'T') ? '' : 'T'; commit(true); return; }
-        if (a === 'holi') { e.trav = (e.trav === 'H') ? '' : 'H'; commit(true); return; }
+        // 'T' is a plain TH8NK day; 'H' is one that also spends a holiday.
+        if (a === 'tday') { e.trav = e.trav ? '' : 'T'; commit(true); return; }
+        if (a === 'holi') { e.trav = (e.trav === 'H') ? 'T' : 'H'; commit(true); return; }
 
         if (a === 'thank3') {
-          if (!j8().open[dk]) { toast(e.trav ? 'This year\'s 8 holidays are used' : 'Mark Travel or Holiday first'); return; }
+          if (!j8().open[dk]) { toast(e.trav ? 'This year\'s 8 holidays are used' : 'Make it a TH8NK day first'); return; }
           if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
           e.thankPull = (e.thankPull || 0) + 3;
           commit(true); toast('Pulled 3, gained 1 point'); return;
@@ -1028,7 +1047,11 @@
     toast('Wiped clean');
   }
 
-  document.getElementById('demobar').addEventListener('click', wipeAll);
+  // In the sandbox the bar re-seeds rather than empties - an empty practice
+  // app is useless, and there is nothing here worth keeping anyway.
+  document.getElementById('demobar').addEventListener('click', function () {
+    if (SANDBOX) loadDemo(); else wipeAll();
+  });
 
   /* ---------------- menu ---------------- */
   document.getElementById('menu').addEventListener('click', function () { openOv('ovMenu'); });
@@ -1066,7 +1089,7 @@
 
   document.getElementById('mAbout').addEventListener('click', function () {
     closeOv('ovMenu');
-    sheetEl.innerHTML = head('About', 'Where this lives') +
+    sheetEl.innerHTML = head('About', APP_VERSION + (SANDBOX ? ' &middot; sandbox' : '')) +
       '<div class="note">' +
       'Everything you tap stays on this phone. Nothing is uploaded, there is no account, and it works with no signal.<br><br>' +
       '<b>Every streak holds by default.</b> Days you never opened the app still count as kept. Nothing breaks until you say it broke.<br><br>' +
@@ -1113,7 +1136,7 @@
         if (e.eatStart || e.eatEnd) p.push((e.eatStart || '?') + '-' + (e.eatEnd || '?'));
         if (e.cups) p.push(e.cups + 'c');
         if (e.cupS) p.push(e.cupS + 'C');
-        if (e.trav) p.push(e.trav === 'T' ? 'TRAVEL' : 'HOLIDAY');
+        if (e.trav) p.push(e.trav === 'T' ? 'TH8NKDAY' : 'HOLIDAY');
         if (e.thankPull) p.push('pull' + e.thankPull);
         if (e.thankDep) p.push('dep' + e.thankDep);
         if (p.length) bits.push(h.id + ': ' + p.join(' '));
@@ -1172,7 +1195,10 @@
   });
 
   load();
-  render();
+
+  // The sandbox arrives already full - an empty practice app shows nothing.
+  if (SANDBOX && Object.keys(state.days).length === 0) loadDemo();
+  else render();
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
