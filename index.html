@@ -79,15 +79,6 @@
   }
   .demobar.on { display: block; }
 
-  .banks { display: flex; gap: 6px; margin-top: 10px; }
-  .bank {
-    flex: 1; background: var(--card); border: 1px solid var(--line);
-    border-radius: 11px; padding: 7px 4px; text-align: center;
-  }
-  .bank b { display: block; font-size: 16px; font-weight: 650; letter-spacing: -.3px; }
-  .bank span { display: block; font-size: 10px; color: var(--dim); margin-top: 1px; letter-spacing: .3px; }
-  .bank.low b { color: var(--warn); }
-
   /* ---------------- cards ---------------- */
   main { padding: 12px; display: flex; flex-direction: column; gap: 9px; }
 
@@ -246,7 +237,6 @@
     <button class="menubtn" id="menu" aria-label="Menu">&#8943;</button>
   </div>
   <button class="demobar" id="demobar">SAMPLE DATA &mdash; tap to wipe and start clean</button>
-  <div class="banks" id="banks"></div>
 </header>
 
 <main id="list"></main>
@@ -277,7 +267,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v15';
+  var APP_VERSION = 'v16';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -737,11 +727,9 @@
       ? 'SANDBOX &mdash; practice only, none of this is real &middot; tap to reset'
       : 'SAMPLE DATA &mdash; tap to wipe and start clean';
 
-    var b8 = bank8(), th = thank(), sb = stopBank();
-    document.getElementById('banks').innerHTML =
-      '<div class="bank' + (b8 < 3 ? ' low' : '') + '"><b>' + fmt(b8) + '</b><span>8ANK</span></div>' +
-      '<div class="bank"><b>' + fmt(th) + '</b><span>TH8NK</span></div>' +
-      '<div class="bank' + (sb < 3 ? ' low' : '') + '"><b>' + fmt(sb) + '</b><span>STOP MIN</span></div>';
+    /* No running totals up here. Balances belong inside the habit they serve -
+       on the front page they were three numbers to be read every morning that
+       said nothing about whether the day had been kept. */
 
     listEl.innerHTML = '';
     HABITS.forEach(function (h) {
@@ -962,7 +950,11 @@
     else if (id === 'JUST8') {
       var h8 = windowHours(e);
       html = head('JUST8', when) +
-        '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b> &nbsp;&middot;&nbsp; today costs <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
+        /* The TH8NK balance only appears on a day it can actually be reached.
+           A reserve you cannot touch is not information, it is temptation. */
+        '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
+          (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b>' : '') +
+          ' &nbsp;&middot;&nbsp; today costs <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
         (j8().autoPulled
           ? '<div class="warnbox">The TH8NK has automatically covered <b>' + fmt(j8().autoPulled) +
             '</b> so far, which reached the 8ANK as <b>' + fmt(j8().autoPulled / 3) + ' pt</b>. ' +
