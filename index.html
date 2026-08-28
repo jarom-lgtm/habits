@@ -246,21 +246,30 @@
   var WERK  = ['W', 'E', 'R', 'K', 'O', 'U', 'T', 'S'];
   var FITB  = ['M', 'T', 'W', 'TH', 'F'];
 
+  /* A full session is the target and also the ceiling - going longer is common
+     but not worth tracking, so the stepper opens at a full one and is walked
+     DOWN for a partial rather than up from zero. The overwhelming majority of
+     days need no adjustment at all. */
+  var WERK_FULL = 31;
+  function werkMin(e) { return (e && typeof e.min === 'number') ? e.min : WERK_FULL; }
+
   var DEFAULT_STARTS = {
     BED: '2018-09-15', H2Only: '2019-01-02', WERKOUTS: '2019-01-02', NOTE: '2024-08-17',
     RAK: '2026-08-30', JUST8: '2026-08-30', STOP: '2026-08-30', FIT: '2026-08-30'
   };
 
-  var state = { starts: {}, days: {}, thankOut: 0 };
+  var state = { starts: {}, days: {} };
+
+  // Cached result of the JUST8 pass; cleared on every write.
+  var _j8 = null;
 
   function load() {
     try {
       var raw = localStorage.getItem(KEY);
       if (raw) {
         var p = JSON.parse(raw);
-        state.starts   = p.starts   || {};
-        state.days     = p.days     || {};
-        state.thankOut = p.thankOut || 0;
+        state.starts = p.starts || {};
+        state.days   = p.days   || {};
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     HABITS.forEach(function (h) {
@@ -268,6 +277,7 @@
     });
   }
   function save() {
+    _j8 = null;                                  // any write can move the banks
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save - storage is blocked'); }
   }
@@ -323,6 +333,7 @@
     if (!e) return false;
     if (id === 'STOP') return !!e.miss;          // set when the bank goes below zero
     if (id === 'H2Only') return !!e.broke;       // the tap itself is the break
+    if (id === 'JUST8') return !!e.miss || !!e.bankMiss;  // by hand, or both banks spent
     return !!e.miss;
   }
 
@@ -343,21 +354,7 @@
     return m ? daysBetween(m, today) : daysBetween(start, today) + 1;
   }
 
-  /* ---------------- JUST8 points ----------------
-     1 point per calendar day, plus a bonus point each Sunday standing in for
-     Zunday - the microsecond eighth day - which makes 8 points a week.        */
-  function j8Earned() {
-    var start = parse(state.starts.JUST8);
-    var n = daysBetween(start, today);
-    if (n < 0) return 0;
-    var pts = 0, d = start;
-    for (var i = 0; i <= n; i++) {
-      pts += 1;
-      if (d.getDay() === 0) pts += 1;   // Sunday carries Zunday's point
-      d = addDays(d, 1);
-    }
-    return pts;
-  }
+  /* ---------------- JUST8 points ---------------- */
 
   function windowHours(e) {
     if (!e || !e.eatStart || !e.eatEnd) return 0;
@@ -379,27 +376,76 @@
     return Math.round(c * 100) / 100;
   }
 
-  function j8Spent() {
-    var t = 0;
-    Object.keys(state.days).forEach(function (dk) {
-      t += j8DayCost(get(dk, 'JUST8'));
-      var f = get(dk, 'FIT');
-      if (f && f.mPts) t += f.mPts;               // M covered from the 8ANK
-    });
-    return Math.round(t * 100) / 100;
-  }
+  /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
+     the three can never drift apart.
 
-  function bank8() {
-    // Withdrawals from the TH8NK arrive at a third of what was taken out.
-    return Math.round((j8Earned() - j8Spent() + state.thankOut / 3) * 100) / 100;
-  }
+     Earning: a point a day, plus a second one each Sunday standing in for
+     Zunday - the microsecond eighth day - which makes eight a week. The TH8NK
+     takes 3 a week on the same rhythm.
 
-  function thank() {
+     Rescue: if the 8ANK falls below zero it is topped straight back up out of
+     the TH8NK, at the same one-third rate as a deliberate pull - so covering a
+     1 point shortfall costs 3 from the TH8NK. A day is only a miss once BOTH
+     are spent. A negative 8ANK on its own is not a miss while the TH8NK can
+     still reach it.                                                          */
+  function j8() {
+    if (_j8) return _j8;
+    var res = { bank: 0, thank: 0, autoPulled: 0, misses: {} };
     var start = parse(state.starts.JUST8);
     var n = daysBetween(start, today);
-    if (n < 0) return 0;
-    var weeks = Math.floor(n / 7) + 1;
-    return Math.round((weeks * 3 - state.thankOut) * 100) / 100;
+    if (n < 0) { _j8 = res; return res; }
+
+    var bank = 0, th = 0, d = start;
+    for (var i = 0; i <= n; i++) {
+      var dk = key(d);
+
+      bank += 1;
+      if (d.getDay() === 0) bank += 1;            // Sunday carries Zunday's point
+      if (i % 7 === 0) th += 3;                   // the weekly TH8NK grant
+
+      var e = get(dk, 'JUST8');
+      if (e) {
+        bank -= j8DayCost(e);
+        if (e.thankPull) {                        // a deliberate pull, that day
+          var p = Math.min(e.thankPull, th);
+          th -= p; bank += p / 3;
+        }
+      }
+      var f = get(dk, 'FIT');
+      if (f && f.mPts) bank -= f.mPts;            // M covered from the 8ANK
+
+      if (bank < 0 && th > 0) {
+        var pull = Math.min(-bank * 3, th);
+        th -= pull; bank += pull / 3;
+        res.autoPulled += pull;
+      }
+
+      res.misses[dk] = (bank < 0);                // both banks are spent
+      d = addDays(d, 1);
+    }
+
+    res.bank       = Math.round(bank * 100) / 100;
+    res.thank      = Math.round(th * 100) / 100;
+    res.autoPulled = Math.round(res.autoPulled * 100) / 100;
+    _j8 = res;
+    return res;
+  }
+
+  function bank8() { return j8().bank; }
+  function thank()  { return j8().thank; }
+
+  /* Write the computed misses back onto the days they happened, so the streak
+     breaks on the right date instead of only showing up as a total. */
+  function refreshJ8Misses() {
+    var m = j8().misses, changed = false;
+    Object.keys(m).forEach(function (dk) {
+      var e = get(dk, 'JUST8');
+      if (m[dk] === !!(e && e.bankMiss)) return;
+      entry(dk, 'JUST8', true).bankMiss = m[dk];
+      prune(dk, 'JUST8');
+      changed = true;
+    });
+    if (changed) save();
   }
 
   /* ---------------- STOP bank ----------------
@@ -480,6 +526,7 @@
     if (missedOn(dk, id)) {
       if (id === 'H2Only') return 'Broke it';
       if (id === 'STOP')   return 'Bank went negative';
+      if (id === 'JUST8' && e && e.bankMiss && !e.miss) return '8ANK and TH8NK both spent';
       return 'Missed';
     }
     if (!e) return h.hint;
@@ -517,6 +564,7 @@
 
   function render() {
     refreshStopMisses();
+    refreshJ8Misses();
     var dk = key(viewing);
 
     document.getElementById('dayBig').textContent = labelFor(viewing);
@@ -567,6 +615,9 @@
       var e = entry(dk, h.id, true);
       e.done = !e.done;
       if (!e.done) e.miss = false;
+      // The tick is the "did the whole thing" shortcut; the sheet is where a
+      // partial gets walked down.
+      if (h.id === 'WERKOUTS') e.min = e.done ? WERK_FULL : 0;
       prune(dk, h.id); save(); render();
       if (h.id === 'RAK' && e.done && !e.note) openSheet(dk, 'RAK');
       if (h.id === 'NOTE' && e.done && !e.who) openSheet(dk, 'NOTE');
@@ -646,11 +697,12 @@
 
     else if (id === 'WERKOUTS') {
       var types = e.types || [];
+      var wm = werkMin(e);
       html = head('WERKOUTS', when) +
-        '<div class="field"><label>Minutes</label>' +
+        '<div class="field"><label>Minutes &mdash; starts at a full ' + WERK_FULL + '</label>' +
           '<div class="stepper">' +
             '<button data-act="min-">&minus;</button>' +
-            '<div class="val" id="minVal">' + (e.min || 0) + '</div>' +
+            '<div class="val" id="minVal">' + wm + (wm >= WERK_FULL ? '' : ' &mdash; partial') + '</div>' +
             '<button data-act="min+">+</button>' +
           '</div></div>' +
         '<div class="field"><label>Which ones</label><div class="chips">' +
@@ -709,7 +761,12 @@
     else if (id === 'JUST8') {
       var h8 = windowHours(e);
       html = head('JUST8', when) +
-        '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; today costs <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
+        '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b> &nbsp;&middot;&nbsp; today costs <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
+        (j8().autoPulled
+          ? '<div class="warnbox">The TH8NK has automatically covered <b>' + fmt(j8().autoPulled) +
+            '</b> so far, which reached the 8ANK as <b>' + fmt(j8().autoPulled / 3) + ' pt</b>. ' +
+            'A day only counts as missed once both are spent.</div>'
+          : '') +
         '<div class="field"><label>Eating window</label>' +
           '<div class="btns" style="margin-bottom:8px">' +
             '<button class="btn ' + (e.eatStart ? 'ghost' : 'go') + '" data-act="eatstart">' + (e.eatStart ? 'Started ' + e.eatStart : 'Start eating') + '</button>' +
@@ -775,8 +832,8 @@
         if (a === 'clean') { e.slip = false; e.min = 0; e.logged = true; commit(true); return; }
         if (a === 'slip')  { e.slip = true;  e.logged = true; commit(true); return; }
 
-        if (a === 'min-')  { e.min = Math.max(0, (e.min || 0) - 5); e.done = (e.min >= 31); commit(true); return; }
-        if (a === 'min+')  { e.min = (e.min || 0) + 5; e.done = (e.min >= 31); commit(true); return; }
+        if (a === 'min-')  { e.min = Math.max(0, werkMin(e) - 5);          e.done = (e.min >= WERK_FULL); commit(true); return; }
+        if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); e.done = (e.min >= WERK_FULL); commit(true); return; }
         if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
         if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
         if (a === 'cash-') { e.cashed = Math.max(0, (e.cashed || 0) - 1); commit(true); return; }
@@ -794,7 +851,8 @@
 
         if (a === 'thank3') {
           if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
-          state.thankOut += 3; commit(true); toast('Pulled 3, gained 1 point'); return;
+          e.thankPull = (e.thankPull || 0) + 3;
+          commit(true); toast('Pulled 3, gained 1 point'); return;
         }
       });
     });

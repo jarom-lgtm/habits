@@ -1,6 +1,6 @@
 /* Habits - offline service worker.
    Bump CACHE whenever a file below changes, so phones pick the update up. */
-var CACHE = 'habits-v5';
+var CACHE = 'habits-v7';
 var ASSETS = [
   './',
   './index.html',
