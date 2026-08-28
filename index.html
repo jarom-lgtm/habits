@@ -154,6 +154,7 @@
   }
   .chip.on { background: var(--accent); border-color: var(--accent); color: #0b2718; }
   .chip.u  { background: var(--warn); border-color: var(--warn); color: #2e2408; }
+  .chip.uu { background: #e08a2e; border-color: #e08a2e; color: #2e1c08; }
   .chip.U  { background: var(--danger); border-color: var(--danger); color: #2a0f0f; }
 
   .stepper { display: flex; align-items: center; gap: 10px; }
@@ -241,7 +242,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v12';
+  var APP_VERSION = 'v13';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -273,6 +274,43 @@
      days need no adjustment at all. */
   var WERK_FULL = 31;
   function werkMin(e) { return (e && typeof e.min === 'number') ? e.min : WERK_FULL; }
+
+  /* ---------------- FIT sizing ----------------
+     Each behaviour is off, -u, -uu or -U. The day's whole allowance is two
+     lowercase units or one uppercase Unit, so -uu on one thing spends it all
+     just as surely as -u on two things does.                                 */
+  var FIT_CYCLE = ['', 'u', 'uu', 'U'];
+  function fitNext(v) { return FIT_CYCLE[(FIT_CYCLE.indexOf(v || '') + 1) % FIT_CYCLE.length]; }
+  function fitWeight(v) { return v === 'u' ? 1 : v === 'uu' ? 2 : 0; }
+
+  function fitOver(items) {
+    var small = 0, big = 0;
+    Object.keys(items || {}).forEach(function (k) {
+      if (items[k] === 'U') big++; else small += fitWeight(items[k]);
+    });
+    // A Unit takes the whole day; lowercase units run out after two.
+    return { small: small, big: big, over: (big > 1) || (big === 1 && small > 0) || (small > 2) };
+  }
+
+  /* M is stamped rather than judged by eye: the time the phone goes down
+     decides its own size. Under half an hour past 12 is -u, under the
+     hour -uu, an hour or more is -U and starts costing 8ANK points at one an
+     hour - M being the only behaviour allowed to reach for them. */
+  function bedMinutesOver(hm) {
+    if (!hm) return null;
+    var p = hm.split(':'), h = +p[0], m = +p[1];
+    if (h >= 12) return 0;                 // phone down before 12
+    return h * 60 + m;
+  }
+  function bedGrade(mins) {
+    if (mins === null || mins <= 0) return '';
+    if (mins < 30) return 'u';
+    if (mins < 60) return 'uu';
+    return 'U';
+  }
+  function bedPoints(mins) {
+    return (mins !== null && mins >= 60) ? Math.ceil(mins / 60) : 0;
+  }
 
   var DEFAULT_STARTS = {
     BED: '2018-09-15', H2Only: '2019-01-02', WERKOUTS: '2019-01-02', NOTE: '2024-08-17',
@@ -603,8 +641,8 @@
       case 'FIT':
         if (e.miss) return 'Missed';
         var it = e.items || {}, ks = Object.keys(it);
-        if (!ks.length) return e.logged ? 'Clean' : h.hint;
-        return ks.map(function (k) { return k + it[k]; }).join('  ');
+        if (!ks.length) return (e.bed ? e.bed + ' &middot; clean' : (e.logged ? 'Clean' : h.hint)).replace('&middot;', '·');
+        return ks.map(function (k) { return k + '-' + it[k]; }).join('  ');
       case 'JUST8':
         if (e.miss) return 'Missed';
         var bits = [];
@@ -802,18 +840,35 @@
 
     else if (id === 'FIT') {
       var items = e.items || {};
-      var small = 0, big = 0;
-      Object.keys(items).forEach(function (k) { if (items[k] === 'U') big++; else small++; });
-      var over = (big > 1) || (big === 1 && small > 0) || (small > 2);
+      var tally = fitOver(items);
+      var mins = bedMinutesOver(e.bed);
+
+      var bedLine;
+      if (!e.bed) bedLine = 'Not stamped yet.';
+      else if (mins <= 0) bedLine = 'Phone down at <b>' + e.bed + '</b> &mdash; nothing counted.';
+      else bedLine = 'Phone down at <b>' + e.bed + '</b> &mdash; ' +
+             (mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' : mins + ' min') +
+             ' past 12, so <b>M-' + bedGrade(mins) + '</b>' +
+             (bedPoints(mins) ? ' and <b>' + bedPoints(mins) + ' pt</b> from the 8ANK' : '') + '.';
+
       html = head('FIT', when) +
-        '<div class="note">Tap a letter to cycle it: off &rarr; <b>u</b> &rarr; <b>U</b>. Allowance is one <b>U</b>, or two <b>u</b>.</div>' +
+        '<div class="field"><label>Phone down for the night</label>' +
+          '<div class="btns">' +
+            '<button class="btn ' + (e.bed ? 'ghost' : 'go') + '" data-act="bed">' +
+              (e.bed ? 'Stamped ' + e.bed + ' &mdash; tap to clear' : 'I am done with my phone') + '</button>' +
+          '</div>' +
+          '<div class="note" style="margin:8px 0 0">' + bedLine + '</div>' +
+        '</div>' +
+        '<div class="note">Tap a letter to cycle it: off &rarr; <b>-u</b> &rarr; <b>-uu</b> &rarr; <b>-U</b>. The day allows two <b>u</b>, or one <b>U</b>.</div>' +
         '<div class="field"><div class="chips">' +
           FITB.map(function (f) {
-            var v = items[f];
-            return '<button class="chip' + (v === 'u' ? ' u' : v === 'U' ? ' U' : '') + '" data-fit="' + f + '">' + f + (v ? v : '') + '</button>';
+            var v = items[f] || '';
+            return '<button class="chip' + (v ? ' ' + v : '') + '" data-fit="' + f + '">' + f + (v ? '-' + v : '') + '</button>';
           }).join('') +
         '</div></div>' +
-        (over ? '<div class="warnbox">That is past the allowance &mdash; ' + small + '&nbsp;u and ' + big + '&nbsp;U. If that is right, mark it missed.</div>' : '') +
+        (tally.over
+          ? '<div class="warnbox">Past the allowance &mdash; ' + tally.small + '&nbsp;u and ' + tally.big + '&nbsp;U. If that is right, mark it missed.</div>'
+          : '') +
         '<div class="field"><label>Cover M from the 8ANK &mdash; 1 point an hour</label>' +
           '<div class="stepper">' +
             '<button data-act="mpts-">&minus;</button>' +
@@ -933,6 +988,22 @@
         if (a === 'cupS-') { e.cupS = Math.max(0, Math.round(((e.cupS || 0) - 0.25) * 100) / 100); commit(true); return; }
         if (a === 'cupS+') { e.cupS = Math.round(((e.cupS || 0) + 0.25) * 100) / 100; commit(true); return; }
 
+        /* Stamping the time grades M by itself and sets the points it costs.
+           Both stay adjustable below - the clock reports, it does not rule. */
+        if (a === 'bed') {
+          if (e.bed) { e.bed = ''; if (e.items) delete e.items.M; e.mPts = 0; commit(true); return; }
+          e.bed = nowHM();
+          var mv = bedMinutesOver(e.bed);
+          var g = bedGrade(mv);
+          e.items = e.items || {};
+          if (g) e.items.M = g; else delete e.items.M;
+          e.mPts = bedPoints(mv);
+          e.logged = true;
+          commit(true);
+          toast(g ? 'M-' + g + ' recorded' : 'Nothing counted');
+          return;
+        }
+
         if (a === 'eatstart') { e.eatStart = e.eatStart ? '' : nowHM(); commit(true); return; }
         if (a === 'eatend')   { e.eatEnd   = e.eatEnd   ? '' : nowHM(); commit(true); return; }
 
@@ -969,9 +1040,8 @@
       b.addEventListener('click', function () {
         var f = b.getAttribute('data-fit');
         var items = e.items || (e.items = {});
-        if (!items[f]) items[f] = 'u';
-        else if (items[f] === 'u') items[f] = 'U';
-        else delete items[f];
+        var next = fitNext(items[f]);
+        if (next) items[f] = next; else delete items[f];
         e.logged = true;
         commit(true);
       });
@@ -1131,7 +1201,8 @@
         if (e.types && e.types.length) p.push(e.types.join(''));
         if (e.note) p.push('"' + e.note + '"');
         if (e.who) p.push('->' + e.who);
-        if (e.items) p.push(Object.keys(e.items).map(function (k) { return k + e.items[k]; }).join(','));
+        if (e.bed) p.push('bed' + e.bed);
+        if (e.items) p.push(Object.keys(e.items).map(function (k) { return k + '-' + e.items[k]; }).join(','));
         if (e.mPts) p.push('M' + e.mPts + 'pt');
         if (e.eatStart || e.eatEnd) p.push((e.eatStart || '?') + '-' + (e.eatEnd || '?'));
         if (e.cups) p.push(e.cups + 'c');
