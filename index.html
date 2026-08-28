@@ -69,6 +69,16 @@
     -webkit-appearance: none; appearance: none;
   }
 
+  /* Loud on purpose. Demo figures that get mistaken for real ones would be
+     worse than no demo at all. */
+  .demobar {
+    display: none; width: 100%; margin-top: 10px;
+    background: var(--danger-deep); border: 1px solid #6b3030; color: var(--danger);
+    border-radius: 11px; padding: 9px 12px; font-size: 12.5px; font-weight: 560;
+    text-align: center;
+  }
+  .demobar.on { display: block; }
+
   .banks { display: flex; gap: 6px; margin-top: 10px; }
   .bank {
     flex: 1; background: var(--card); border: 1px solid var(--line);
@@ -200,6 +210,7 @@
     <button class="arrow" id="next" aria-label="Next day">&rsaquo;</button>
     <button class="menubtn" id="menu" aria-label="Menu">&#8943;</button>
   </div>
+  <button class="demobar" id="demobar">SAMPLE DATA &mdash; tap to wipe and start clean</button>
   <div class="banks" id="banks"></div>
 </header>
 
@@ -212,6 +223,8 @@
     <div class="grab"></div>
     <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Start dates<small>When each streak began</small></span></button>
+    <button class="row" id="mDemo"><span class="ic">&#9781;</span><span>Load sample data<small>A month of made-up entries to play with</small></span></button>
+    <button class="row" id="mWipe"><span class="ic">&#10005;</span><span>Wipe everything<small>Back to empty, with your real start dates</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
   </div>
 </div>
@@ -270,6 +283,7 @@
         var p = JSON.parse(raw);
         state.starts = p.starts || {};
         state.days   = p.days   || {};
+        state.demo   = !!p.demo;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     HABITS.forEach(function (h) {
@@ -383,14 +397,20 @@
      Zunday - the microsecond eighth day - which makes eight a week. The TH8NK
      takes 3 a week on the same rhythm.
 
-     Rescue: if the 8ANK falls below zero it is topped straight back up out of
-     the TH8NK, at the same one-third rate as a deliberate pull - so covering a
-     1 point shortfall costs 3 from the TH8NK. A day is only a miss once BOTH
-     are spent. A negative 8ANK on its own is not a miss while the TH8NK can
-     still reach it.                                                          */
+     Deposits: 3 out of the 8ANK become 4 in the TH8NK - a point of interest for
+     putting it away. It still only ever comes back at the one-third rate, so
+     the round trip loses value; the reason to do it is to have a reserve when
+     travelling, not to gain points.
+
+     Rescue: if the 8ANK falls below zero the TH8NK tops it straight back up at
+     the one-third rate, so covering a 1 point shortfall spends 3. But the
+     TH8NK is only reachable on a day marked Travel or Holiday - on an ordinary
+     day there is nothing to fall back on, and going below zero is a miss.     */
+  var HOLIDAYS_PER_YEAR = 8;
+
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, autoPulled: 0, misses: {} };
+    var res = { bank: 0, thank: 0, autoPulled: 0, misses: {}, holidaysUsed: {}, depAvail: {}, open: {} };
     var start = parse(state.starts.JUST8);
     var n = daysBetween(start, today);
     if (n < 0) { _j8 = res; return res; }
@@ -398,29 +418,50 @@
     var bank = 0, th = 0, d = start;
     for (var i = 0; i <= n; i++) {
       var dk = key(d);
+      var e = get(dk, 'JUST8');
+      var yr = d.getFullYear();
 
       bank += 1;
       if (d.getDay() === 0) bank += 1;            // Sunday carries Zunday's point
       if (i % 7 === 0) th += 3;                   // the weekly TH8NK grant
 
-      var e = get(dk, 'JUST8');
-      if (e) {
-        bank -= j8DayCost(e);
-        if (e.thankPull) {                        // a deliberate pull, that day
-          var p = Math.min(e.thankPull, th);
-          th -= p; bank += p / 3;
-        }
+      /* Only a Travel or Holiday day opens the TH8NK, and holidays are capped
+         per calendar year - the ninth one of a year simply does not count. */
+      var open = false;
+      if (e && e.trav === 'T') open = true;
+      else if (e && e.trav === 'H') {
+        res.holidaysUsed[yr] = (res.holidaysUsed[yr] || 0) + 1;
+        open = res.holidaysUsed[yr] <= HOLIDAYS_PER_YEAR;
       }
+      res.open[dk] = open;   // a capped holiday is marked but still shut
+
+      if (e) bank -= j8DayCost(e);
       var f = get(dk, 'FIT');
       if (f && f.mPts) bank -= f.mPts;            // M covered from the 8ANK
 
-      if (bank < 0 && th > 0) {
+      if (e && e.thankDep) {                      // 3 out of the 8ANK, 4 into the TH8NK
+        var dep = Math.floor(Math.min(e.thankDep, Math.max(0, bank)) / 3) * 3;
+        if (dep > 0) { bank -= dep; th += (dep / 3) * 4; }
+      }
+
+      /* What is still spare that day, so the deposit button can be judged
+         against the balance it will actually be charged to rather than the
+         closing total - those differ, and the gap made deposits silently
+         vanish. */
+      res.depAvail[dk] = Math.max(0, Math.round(bank * 100) / 100);
+
+      if (e && e.thankPull && open) {             // a deliberate pull, that day
+        var p = Math.min(e.thankPull, th);
+        th -= p; bank += p / 3;
+      }
+
+      if (bank < 0 && th > 0 && open) {
         var pull = Math.min(-bank * 3, th);
         th -= pull; bank += pull / 3;
         res.autoPulled += pull;
       }
 
-      res.misses[dk] = (bank < 0);                // both banks are spent
+      res.misses[dk] = (bank < 0);                // nothing left to reach for
       d = addDays(d, 1);
     }
 
@@ -433,6 +474,14 @@
 
   function bank8() { return j8().bank; }
   function thank()  { return j8().thank; }
+
+  function holidayNote() {
+    var used = j8().holidaysUsed[today.getFullYear()] || 0;
+    var left = HOLIDAYS_PER_YEAR - used;
+    return left > 0
+      ? left + ' of ' + HOLIDAYS_PER_YEAR + ' holidays left this year'
+      : 'All ' + HOLIDAYS_PER_YEAR + ' holidays used this year - further ones will not open the TH8NK';
+  }
 
   /* Write the computed misses back onto the days they happened, so the streak
      breaks on the right date instead of only showing up as a total. */
@@ -551,6 +600,8 @@
       case 'JUST8':
         if (e.miss) return 'Missed';
         var bits = [];
+        if (e.trav === 'T') bits.push('Travel');
+        if (e.trav === 'H') bits.push('Holiday');
         if (e.eatStart && e.eatEnd) bits.push(fmt(Math.round(windowHours(e) * 4) / 4) + 'h window');
         else if (e.eatStart) bits.push('eating since ' + e.eatStart);
         if (e.cups) bits.push(e.cups + 'c');
@@ -578,6 +629,8 @@
     dp.min = earliest;
     dp.max = key(today);
     dp.value = key(viewing);
+
+    document.getElementById('demobar').classList.toggle('on', !!state.demo);
 
     var b8 = bank8(), th = thank(), sb = stopBank();
     document.getElementById('banks').innerHTML =
@@ -788,8 +841,24 @@
             '<div class="val" id="cupSVal">' + fmt(e.cupS || 0) + '</div>' +
             '<button data-act="cupS+">+</button>' +
           '</div></div>' +
-        '<div class="field"><label>Pull from TH8NK &mdash; arrives at a third (' + fmt(thank()) + ' available)</label>' +
-          '<div class="btns"><button class="btn ghost" data-act="thank3">Pull 3 &rarr; +1 pt</button></div>' +
+        '<div class="field"><label>Is today Travel or a Holiday? &mdash; the TH8NK only opens on these</label>' +
+          '<div class="btns">' +
+            '<button class="btn ' + (e.trav === 'T' ? 'go' : 'ghost') + '" data-act="trav">Travel</button>' +
+            '<button class="btn ' + (e.trav === 'H' ? 'go' : 'ghost') + '" data-act="holi">Holiday</button>' +
+          '</div>' +
+          '<div class="note" style="margin:8px 0 0">' + holidayNote() + '</div>' +
+        '</div>' +
+        (j8().open[dk]
+          ? '<div class="field"><label>Pull from TH8NK &mdash; arrives at a third (' + fmt(thank()) + ' there)</label>' +
+              '<div class="btns"><button class="btn ghost" data-act="thank3">Pull 3 &rarr; +1 pt</button></div>' +
+            '</div>'
+          : '<div class="note">The TH8NK is shut today' +
+            (e.trav === 'H' ? ' &mdash; this year\'s 8 holidays are already used' : '') +
+            '. ' + (e.trav ? '' : 'Mark Travel or Holiday above to reach it. ') +
+            'An 8ANK below zero is a miss while it stays shut.</div>') +
+        '<div class="field"><label>Put 3 into the TH8NK &mdash; lands as 4' + (e.thankDep ? ' (' + e.thankDep + ' in today)' : '') +
+          ' &middot; ' + fmt(j8().depAvail[dk] || 0) + ' spare today</label>' +
+          '<div class="btns"><button class="btn ghost" data-act="dep3">Deposit 3 &rarr; +4</button></div>' +
         '</div>' +
         '<div class="btns">' + missBtn() + doneBtn() + '</div>';
     }
@@ -849,10 +918,19 @@
         if (a === 'eatstart') { e.eatStart = e.eatStart ? '' : nowHM(); commit(true); return; }
         if (a === 'eatend')   { e.eatEnd   = e.eatEnd   ? '' : nowHM(); commit(true); return; }
 
+        if (a === 'trav') { e.trav = (e.trav === 'T') ? '' : 'T'; commit(true); return; }
+        if (a === 'holi') { e.trav = (e.trav === 'H') ? '' : 'H'; commit(true); return; }
+
         if (a === 'thank3') {
+          if (!j8().open[dk]) { toast(e.trav ? 'This year\'s 8 holidays are used' : 'Mark Travel or Holiday first'); return; }
           if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
           e.thankPull = (e.thankPull || 0) + 3;
           commit(true); toast('Pulled 3, gained 1 point'); return;
+        }
+        if (a === 'dep3') {
+          if ((j8().depAvail[dk] || 0) < 3) { toast('Only ' + fmt(j8().depAvail[dk] || 0) + ' spare that day'); return; }
+          e.thankDep = (e.thankDep || 0) + 3;
+          commit(true); toast('Deposited 3, landed as 4'); return;
         }
       });
     });
@@ -881,8 +959,89 @@
     });
   }
 
+  /* ---------------- sample data ----------------
+     A month of invented entries so the whole thing can be seen working before
+     it holds anything real. Everything starts on 1 Aug so all eight are live.
+     Deterministic, so the same figures come back every time and can be checked
+     by hand. Flagged loudly and wiped in one tap.                             */
+  function loadDemo() {
+    var seed = 20260801;
+    function rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
+
+    var starts = {};
+    HABITS.forEach(function (h) { starts[h.id] = '2026-08-01'; });
+
+    var names = ['Mom', 'Dave', 'Sarah', 'Pastor Jim', 'Aunt Ruth', 'Kyle', 'Grandma'];
+    var acts  = ['picked up trash on the walk', 'held the door at the store',
+                 'paid for the car behind me', 'carried groceries for a neighbour',
+                 'let someone merge', 'shovelled next door', 'left a tip for the cleaner'];
+
+    var days = {}, d = parse('2026-08-01'), end = today;
+    while (daysBetween(d, end) >= 0) {
+      var dk = key(d), day = {};
+
+      day.BED = { done: true };
+      day.H2Only = { logged: true };
+      day.NOTE = { done: true, who: names[Math.floor(rnd() * names.length)] };
+      day.RAK  = { done: true, note: acts[Math.floor(rnd() * acts.length)] };
+
+      var r = rnd();
+      day.WERKOUTS = (r < 0.15)
+        ? { done: false, min: 21, types: ['S'] }
+        : { done: true, min: 31, types: (rnd() < 0.5 ? ['W', 'K'] : ['R', 'O']) };
+
+      day.STOP = { logged: true };
+      day.FIT  = { logged: true };
+      if (rnd() < 0.25) day.FIT.items = { W: 'u' };
+
+      var startH = 10 + Math.floor(rnd() * 3);
+      var len = 7 + Math.floor(rnd() * 3);                 // 7-9 hours
+      day.JUST8 = {
+        eatStart: String(startH).padStart(2, '0') + ':00',
+        eatEnd:   String((startH + len) % 24).padStart(2, '0') + ':00'
+      };
+      if (rnd() < 0.4) day.JUST8.cups = Math.round(rnd() * 8) / 4;
+      if (rnd() < 0.25) day.JUST8.cupS = 0.25;
+
+      days[dk] = day;
+      d = addDays(d, 1);
+    }
+
+    // A few deliberate landmarks so the interesting states are visible.
+    if (days['2026-08-09']) { days['2026-08-09'].BED = { miss: true }; }
+    if (days['2026-08-14']) { days['2026-08-14'].H2Only = { broke: true, logged: true }; }
+    if (days['2026-08-19']) { days['2026-08-19'].STOP = { slip: true, min: 4, logged: true }; }
+    if (days['2026-08-22']) { days['2026-08-22'].JUST8.trav = 'T'; days['2026-08-22'].JUST8.cupS = 2; }
+    if (days['2026-08-25']) { days['2026-08-25'].FIT = { logged: true, items: { M: 'u', F: 'U' }, miss: true }; }
+
+    state = { starts: starts, days: days, demo: true };
+    _j8 = null;
+    save(); render();
+    toast('Sample data loaded');
+  }
+
+  function wipeAll() {
+    state = { starts: {}, days: {} };
+    HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
+    _j8 = null;
+    save(); render();
+    toast('Wiped clean');
+  }
+
+  document.getElementById('demobar').addEventListener('click', wipeAll);
+
   /* ---------------- menu ---------------- */
   document.getElementById('menu').addEventListener('click', function () { openOv('ovMenu'); });
+  document.getElementById('mDemo').addEventListener('click', function () { closeOv('ovMenu'); loadDemo(); });
+  document.getElementById('mWipe').addEventListener('click', function () {
+    closeOv('ovMenu');
+    sheetEl.innerHTML = head('Wipe everything?', 'This cannot be undone') +
+      '<div class="note">Every entry goes, and the start dates return to your real ones. Export first if there is anything here worth keeping.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Keep it</button><button class="btn danger" data-act="go">Wipe</button></div>';
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    sheetEl.querySelector('[data-act="go"]').addEventListener('click', function () { closeOv('ovSheet'); wipeAll(); });
+    openOv('ovSheet');
+  });
 
   document.getElementById('mStarts').addEventListener('click', function () {
     closeOv('ovMenu');
@@ -954,6 +1113,9 @@
         if (e.eatStart || e.eatEnd) p.push((e.eatStart || '?') + '-' + (e.eatEnd || '?'));
         if (e.cups) p.push(e.cups + 'c');
         if (e.cupS) p.push(e.cupS + 'C');
+        if (e.trav) p.push(e.trav === 'T' ? 'TRAVEL' : 'HOLIDAY');
+        if (e.thankPull) p.push('pull' + e.thankPull);
+        if (e.thankDep) p.push('dep' + e.thankDep);
         if (p.length) bits.push(h.id + ': ' + p.join(' '));
       });
       if (bits.length) o.push(dk + '  ' + bits.join('  |  '));
