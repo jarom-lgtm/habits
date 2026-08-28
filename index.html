@@ -146,6 +146,16 @@
   }
   input:focus { border-color: var(--accent); }
 
+  select {
+    width: 100%; height: 50px; border-radius: 12px;
+    background: var(--bg); border: 1px solid var(--line);
+    color: var(--text); font-size: 16px; padding: 0 40px 0 14px; outline: none;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b93a7' stroke-width='2.5' stroke-linecap='round'><polyline points='6,9 12,15 18,9'/></svg>");
+    background-repeat: no-repeat; background-position: right 13px center; background-size: 18px;
+  }
+  select:focus { border-color: var(--accent); }
+
   .chips { display: flex; flex-wrap: wrap; gap: 7px; }
   .chip {
     padding: 11px 13px; border-radius: 11px; font-size: 14px; font-weight: 560;
@@ -267,7 +277,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v14';
+  var APP_VERSION = 'v15';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -298,6 +308,30 @@
      but not worth tracking, so the stepper opens at a full one and is walked
      DOWN for a partial rather than up from zero. The overwhelming majority of
      days need no adjustment at all. */
+  /* R's shortlist. Only the acts actually named are seeded - guessing at
+     what someone does for others is presumptuous - and anything typed as
+     Other joins the list, so it fits the real pattern within a week or two. */
+  var RAK_SEED = [
+    'Held the door for someone',
+    'Picked up trash',
+    'Paid for someone'
+  ];
+  var RAK_MAX = 12;
+
+  function rakList() {
+    if (!state.rakList || !state.rakList.length) state.rakList = RAK_SEED.slice();
+    return state.rakList;
+  }
+  function rakRemember(text) {
+    var t = (text || '').trim();
+    if (!t) return;
+    var list = rakList();
+    var i = list.indexOf(t);
+    if (i !== -1) list.splice(i, 1);
+    list.unshift(t);                       // most recently used floats up
+    if (list.length > RAK_MAX) list.length = RAK_MAX;
+  }
+
   var WERK_FULL = 31;
   function werkMin(e) { return (e && typeof e.min === 'number') ? e.min : WERK_FULL; }
 
@@ -356,6 +390,7 @@
         state.starts = p.starts || {};
         state.days   = p.days   || {};
         state.demo   = !!p.demo;
+        if (Array.isArray(p.rakList)) state.rakList = p.rakList;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     HABITS.forEach(function (h) {
@@ -812,12 +847,41 @@
       var isRak = (id === 'RAK');
       var label = isRak ? 'What you did' : 'Who you wrote to';
       var val   = isRak ? (e.note || '') : (e.who || '');
+      var esc   = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); };
+
+      var picker = '';
+      if (isRak) {
+        var list = rakList();
+        var known = list.indexOf(val) !== -1;
+        /* The value decides the selection, not the flag that opened the box.
+           Once something typed has joined the list it is a normal choice, so
+           it shows as picked rather than stranding the box open under it. */
+        var mode  = known ? val : ((val || e.rakOther) ? '__other' : '');
+        picker =
+          '<div class="field"><label>' + label + '</label>' +
+            '<select id="rakPick">' +
+              '<option value=""' + (mode === '' ? ' selected' : '') + '>Choose one&hellip;</option>' +
+              list.map(function (a) {
+                return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
+              }).join('') +
+              '<option value="__other"' + (mode === '__other' ? ' selected' : '') + '>Something else&hellip;</option>' +
+            '</select>' +
+          '</div>' +
+          (mode === '__other'
+            ? '<div class="field"><input type="text" id="fText" value="' + esc(val) +
+              '" placeholder="what you did" autocomplete="off" enterkeyhint="done"></div>'
+            : '');
+      } else {
+        picker =
+          '<div class="field"><label>' + label + '</label>' +
+            '<input type="text" id="fText" value="' + esc(val) + '" placeholder="name" autocomplete="off" enterkeyhint="done"></div>';
+      }
+
       html = head(id, when) +
         '<div class="btns" style="margin-bottom:14px">' +
           '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Done &#10003;' : 'Mark done') + '</button>' +
         '</div>' +
-        '<div class="field"><label>' + label + '</label>' +
-          '<input type="text" id="fText" value="' + val.replace(/"/g, '&quot;') + '" placeholder="' + (isRak ? 'held the door for someone' : 'name') + '" autocomplete="off"></div>' +
+        picker +
         '<div class="btns">' + missBtn() + doneBtn() + '</div>';
     }
 
@@ -969,9 +1033,33 @@
     function commit(reopen) {
       // Free-text fields are read back before anything is written away.
       var f = document.getElementById('fText');
-      if (f) { if (id === 'RAK') e.note = f.value.trim(); else e.who = f.value.trim(); }
+      if (f) {
+        if (id === 'RAK') {
+          e.note = f.value.trim();
+          rakRemember(e.note);
+          if (e.note) { e.rakOther = false; e.done = true; }   // it is a listed choice now
+        }
+        else e.who = f.value.trim();
+      }
       prune(dk, id); save(); render();
       if (reopen) openSheet(dk, id);
+    }
+
+    var pick = document.getElementById('rakPick');
+    if (pick) {
+      pick.addEventListener('change', function () {
+        if (this.value === '__other') {
+          e.rakOther = true;              // reveal the box, keep whatever is typed
+          e.done = true;
+          prune(dk, id); save(); render(); openSheet(dk, id);
+          setTimeout(function () { var t = document.getElementById('fText'); if (t) t.focus(); }, 90);
+          return;
+        }
+        e.rakOther = false;
+        e.note = this.value;
+        if (e.note) { e.done = true; rakRemember(e.note); }
+        prune(dk, id); save(); render(); openSheet(dk, id);
+      });
     }
 
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-act]'), function (b) {
@@ -1118,14 +1206,15 @@
     if (days['2026-08-22']) { days['2026-08-22'].JUST8.trav = 'T'; days['2026-08-22'].JUST8.cupS = 2; }
     if (days['2026-08-25']) { days['2026-08-25'].FIT = { logged: true, items: { M: 'u', F: 'U' }, miss: true }; }
 
-    state = { starts: starts, days: days, demo: true };
+    // The R shortlist is a preference, not data - it survives a reseed.
+    state = { starts: starts, days: days, demo: true, rakList: state.rakList };
     _j8 = null;
     save(); render();
     toast('Sample data loaded');
   }
 
   function wipeAll() {
-    state = { starts: {}, days: {} };
+    state = { starts: {}, days: {}, rakList: state.rakList };   // shortlist survives a wipe
     HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
     _j8 = null;
     save(); render();
