@@ -252,7 +252,6 @@
     <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
-    <button class="row" id="mDemo"><span class="ic">&#9781;</span><span>Load sample data<small>A month of made-up entries to play with</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
   </div>
 </div>
@@ -269,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v23';
+  var APP_VERSION = 'v24';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -544,7 +543,7 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, depAvail: {}, open: {} };
+    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {} };
     var start = parse(state.starts.JUST8);
     var n = daysBetween(start, today);
     if (n < 0) { _j8 = res; return res; }
@@ -573,21 +572,20 @@
       var f = get(dk, 'FIT');
       if (f && f.mPts) bank -= f.mPts;            // M covered from the 8ANK
 
+      /* Transfers are applied exactly as they were made. They used to be
+         re-clamped here by whatever the balance happened to be at this point,
+         which made the arithmetic run backwards: adding a cost lowered the
+         balance, which shrank the deposit, which subtracted LESS - so spending
+         more points pushed the closing total UP. A transfer is a transaction;
+         it is checked when it is made and then it simply happened. */
       if (e && e.thankDep) {                      // 3 out of the 8ANK, 4 into the TH8NK
-        var dep = Math.floor(Math.min(e.thankDep, Math.max(0, bank)) / 3) * 3;
-        if (dep > 0) { bank -= dep; th += (dep / 3) * 4; }
+        bank -= e.thankDep;
+        th   += (e.thankDep / 3) * 4;
       }
-
-      /* What is still spare that day, so the deposit button can be judged
-         against the balance it will actually be charged to rather than the
-         closing total - those differ, and the gap made deposits silently
-         vanish. */
-      res.depAvail[dk] = Math.max(0, Math.round(bank * 100) / 100);
-
       // Pulls no longer need a TH8NK day; the day only counts holidays now.
       if (e && e.thankPull) {                     // a deliberate pull, that day
-        var p = Math.min(e.thankPull, th);
-        th -= p; bank += p / 3;
+        th   -= e.thankPull;
+        bank += e.thankPull / 3;
       }
 
       /* Nothing is pulled automatically any more. Spending the reserve is a
@@ -635,19 +633,27 @@
   /* One walk produces the bank and every miss together. This used to be two
      near-identical loops, which is precisely the arrangement that lets a
      balance and the misses drawn from it drift apart. */
+  /* The Tank is a long-term reserve alongside the Bank. Minutes move Bank to
+     Tank one for one, but only come back out after 30 unbroken days - the T
+     stands for the wait. Named Bank and Tank rather than reusing the 8ANK and
+     TH8NK spelling, so the two economies cannot be mistaken for each other. */
+  var TANK_UNLOCK_DAYS = 30;
+
   function stop() {
     if (_stop) return _stop;
-    var res = { bank: 0, misses: {} };
+    var res = { bank: 0, tank: 0, cleanRun: 0, misses: {} };
     var start = parse(state.starts.STOP);
     var n = daysBetween(start, today);
     if (n < 0) { _stop = res; return res; }
 
-    var bank = 0, d = start;
+    var bank = 0, tank = 0, clean = 0, d = start;
     for (var i = 0; i <= n; i++) {
       var dk = key(d), e = get(dk, 'STOP');
 
-      if (e && e.slip) bank -= (e.min || 0); else bank += 1;
+      if (e && e.slip) { bank -= (e.min || 0); clean = 0; } else { bank += 1; clean++; }
       if (e && e.cashed) bank -= e.cashed;   // cashing out is one-way
+      if (e && e.toTank)   { bank -= e.toTank;   tank += e.toTank; }   // one for one
+      if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank; }
 
       var miss = bank < 0;
       res.misses[dk] = miss;
@@ -660,12 +666,16 @@
 
       d = addDays(d, 1);
     }
-    res.bank = Math.round(bank * 100) / 100;
+    res.bank     = Math.round(bank * 100) / 100;
+    res.tank     = Math.round(tank * 100) / 100;
+    res.cleanRun = clean;
     _stop = res;
     return res;
   }
 
-  function stopBank() { return stop().bank; }
+  function stopBank()  { return stop().bank; }
+  function stopTank()  { return stop().tank; }
+  function tankOpen()  { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
 
   /* Write the computed misses onto the days they happened, so the streak
      breaks on the right date rather than only showing as a total. */
@@ -937,7 +947,7 @@
 
     else if (id === 'STOP') {
       html = head('STOP', when) +
-        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b></div>' +
+        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmt(stopTank()) + ' min</b></div>' +
         // A slip is not a miss - the bank absorbs it. Calling it one was wrong.
         '<div class="btns" style="margin-bottom:14px">' +
           '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Good</button>' +
@@ -951,6 +961,21 @@
           '</div></div>' : '') +
         /* One-way. Minutes leave the bank and do not come back, so this is a
            deliberate button rather than a stepper that can drift up and down. */
+        '<div class="field"><label>Bank and Tank &mdash; one for one' +
+          (tankOpen()
+            ? ' &middot; Tank open'
+            : ' &middot; Tank locked, ' + (TANK_UNLOCK_DAYS - stop().cleanRun) + ' more clean days') + '</label>' +
+          '<div class="btns">' +
+            '<div style="flex:1">' +
+              '<div class="dirlbl">Bank &rarr; Tank</div>' +
+              '<button class="btn ghost" data-act="totank" style="width:100%">Put 1 in</button>' +
+            '</div>' +
+            '<div style="flex:1">' +
+              '<div class="dirlbl">Tank &rarr; Bank</div>' +
+              '<button class="btn ghost" data-act="fromtank" style="width:100%">Take 1 out</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
         '<div class="field"><label>Cash out &mdash; a minute is $5' +
           (e.cashed ? ' &middot; ' + e.cashed + ' out today, $' + (e.cashed * 5) : '') + '</label>' +
           '<div class="btns"><button class="btn ghost" data-act="cash1">Cash 1 min &rarr; $5</button></div>' +
@@ -1174,6 +1199,20 @@
           return;
         }
 
+        if (a === 'totank') {
+          if (stopBank() < 1) { toast('Nothing in the Bank to move'); return; }
+          e.toTank = (e.toTank || 0) + 1;
+          e.logged = true; commit(true); toast('1 min into the Tank'); return;
+        }
+        if (a === 'fromtank') {
+          if (!tankOpen()) {
+            toast((TANK_UNLOCK_DAYS - stop().cleanRun) + ' more clean days to open the Tank');
+            return;
+          }
+          if (stopTank() < 1) { toast('Nothing in the Tank'); return; }
+          e.fromTank = (e.fromTank || 0) + 1;
+          e.logged = true; commit(true); toast('1 min back to the Bank'); return;
+        }
         if (a === 'cash1') {
           if (stopBank() < 1) { toast('Nothing in the bank to cash'); return; }
           e.cashed = (e.cashed || 0) + 1;
@@ -1197,7 +1236,7 @@
           commit(true); toast('Pulled 3, gained 1 point'); return;
         }
         if (a === 'dep3') {
-          if ((j8().depAvail[dk] || 0) < 3) { toast('Only ' + fmt(j8().depAvail[dk] || 0) + ' spare that day'); return; }
+          if (bank8() < 3) { toast('Need 3 in the 8ANK'); return; }
           e.thankDep = (e.thankDep || 0) + 3;
           commit(true); toast('Deposited 3, landed as 4'); return;
         }
@@ -1314,7 +1353,6 @@
 
   /* ---------------- menu ---------------- */
   document.getElementById('menu').addEventListener('click', function () { openOv('ovMenu'); });
-  document.getElementById('mDemo').addEventListener('click', function () { closeOv('ovMenu'); loadDemo(); });
 
   function shortDate(s) {
     return parse(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
