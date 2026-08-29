@@ -174,6 +174,7 @@
   .btn.warn { background: var(--warn-deep); color: var(--warn); }
   .btn.danger { background: var(--danger-deep); color: var(--danger); }
   .btn.stopred { background: var(--danger); color: #2a0f0f; font-weight: 650; }
+  .dirlbl { font-size: 11px; color: var(--dim); text-align: center; margin-bottom: 5px; letter-spacing: .2px; }
 
   .note { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 10px 0 14px; }
   .note b { color: var(--text); font-weight: 600; }
@@ -268,7 +269,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v22';
+  var APP_VERSION = 'v23';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -583,7 +584,8 @@
          vanish. */
       res.depAvail[dk] = Math.max(0, Math.round(bank * 100) / 100);
 
-      if (e && e.thankPull && open) {             // a deliberate pull, that day
+      // Pulls no longer need a TH8NK day; the day only counts holidays now.
+      if (e && e.thankPull) {                     // a deliberate pull, that day
         var p = Math.min(e.thankPull, th);
         th -= p; bank += p / 3;
       }
@@ -1050,13 +1052,20 @@
               '<div class="note" style="margin:8px 0 0">' + holidayNote() + '</div>'
             : '') +
         '</div>' +
-        /* Both directions are always on screen. Hiding the pull on an ordinary
-           day made it look like the feature had vanished; it now sits there and
-           says why it will not go through. */
-        '<div class="field"><label>Bank to bank' + (e.trav ? ' &middot; ' + fmt(thank()) + ' in the TH8NK' : '') + '</label>' +
+        /* Each side is labelled with the direction it moves, because "bank to
+           bank" reads the same both ways and the two are not symmetrical: 3 out
+           of the TH8NK arrives as 1, while 3 out of the 8ANK lands as 4.
+           Neither needs a TH8NK day - the day only governs holidays now. */
+        '<div class="field"><label>Moving points &middot; 8ANK ' + fmt(bank8()) + ' &middot; TH8NK ' + fmt(thank()) + '</label>' +
           '<div class="btns">' +
-            '<button class="btn ghost" data-act="thank3">Pull 3 &rarr; +1</button>' +
-            '<button class="btn ghost" data-act="dep3">Deposit 3 &rarr; +4</button>' +
+            '<div style="flex:1">' +
+              '<div class="dirlbl">TH8NK &rarr; 8ANK</div>' +
+              '<button class="btn ghost" data-act="thank3" style="width:100%">Pull 3 &rarr; +1</button>' +
+            '</div>' +
+            '<div style="flex:1">' +
+              '<div class="dirlbl">8ANK &rarr; TH8NK</div>' +
+              '<button class="btn ghost" data-act="dep3" style="width:100%">Deposit 3 &rarr; +4</button>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
@@ -1183,7 +1192,6 @@
         if (a === 'holi') { e.trav = (e.trav === 'H') ? 'T' : 'H'; commit(true); return; }
 
         if (a === 'thank3') {
-          if (!j8().open[dk]) { toast(e.trav ? 'This year\'s 8 holidays are used' : 'Make it a TH8NK day first'); return; }
           if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
           e.thankPull = (e.thankPull || 0) + 3;
           commit(true); toast('Pulled 3, gained 1 point'); return;
