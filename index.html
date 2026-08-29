@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v29';
+  var APP_VERSION = 'v30';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -1356,7 +1356,7 @@
     function rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
 
     var starts = {};
-    HABITS.forEach(function (h) { starts[h.id] = '2026-08-01'; });
+    HABITS.forEach(function (h) { starts[h.id] = '2026-06-01'; });
 
     var names = ['Mom', 'Dave', 'Sarah', 'Pastor Jim', 'Aunt Ruth', 'Kyle', 'Grandma'];
     var acts  = ['picked up trash on the walk', 'held the door at the store',
@@ -1366,7 +1366,7 @@
     /* Stops at yesterday. Today is left blank on purpose so the ticking is
        his to do - a day that arrives already complete gives nothing to mark,
        and marking it is half the point. */
-    var days = {}, d = parse('2026-08-01'), end = addDays(today, -1);
+    var days = {}, d = parse('2026-06-01'), end = addDays(today, -1);
     while (daysBetween(d, end) >= 0) {
       var dk = key(d), day = {};
 
@@ -1397,7 +1397,18 @@
       d = addDays(d, 1);
     }
 
-    // A few deliberate landmarks so the interesting states are visible.
+    /* Deliberate landmarks so every state is somewhere in the record, spread
+       across the three months rather than bunched in the last fortnight - with
+       this much history there is room for streaks to build, break and rebuild,
+       which is the thing worth looking at. */
+    if (days['2026-06-11']) { days['2026-06-11'].H2Only = { broke: true, logged: true }; }
+    if (days['2026-06-18']) { days['2026-06-18'].STOP = { slip: true, min: 12, logged: true }; }
+    if (days['2026-06-27']) { days['2026-06-27'].NOTE = { miss: true }; }
+    if (days['2026-07-04']) { days['2026-07-04'].JUST8.trav = 'H'; days['2026-07-04'].JUST8.cupS = 1.5; }
+    if (days['2026-07-09']) { days['2026-07-09'].RAK = { miss: true }; }
+    if (days['2026-07-16']) { days['2026-07-16'].WERKOUTS = { done: false, miss: true, min: 16, types: ['S'], logged: true }; }
+    if (days['2026-07-23']) { days['2026-07-23'].FIT = { logged: true, items: { W: 'U' } }; }
+    if (days['2026-07-30']) { days['2026-07-30'].JUST8.trav = 'T'; days['2026-07-30'].JUST8.cups = 3; }
     if (days['2026-08-09']) { days['2026-08-09'].BED = { miss: true }; }
     if (days['2026-08-14']) { days['2026-08-14'].H2Only = { broke: true, logged: true }; }
     if (days['2026-08-19']) { days['2026-08-19'].STOP = { slip: true, min: 4, logged: true }; }
