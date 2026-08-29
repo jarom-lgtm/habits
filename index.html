@@ -143,6 +143,39 @@
     -webkit-user-select: text; user-select: text;
   }
   input:focus { border-color: var(--accent); }
+  textarea {
+    width: 100%; min-height: 120px; border-radius: 12px;
+    background: var(--bg); border: 1px solid var(--line);
+    color: var(--text); font-family: inherit; font-size: 16px; line-height: 1.45;
+    padding: 12px 14px; outline: none; resize: vertical;
+    -webkit-user-select: text; user-select: text;
+  }
+  textarea:focus { border-color: var(--accent); }
+
+  /* A sheet that can run for years needs its exit at the top, not after
+     everything it is showing. */
+  .hrow { display: flex; align-items: flex-start; gap: 10px; }
+  .hrow > div { flex: 1 1 auto; }
+  .sheetx {
+    flex: 0 0 auto; width: 34px; height: 34px; border: 0; border-radius: 50%;
+    background: var(--card-hi); color: var(--dim); font-family: inherit; font-size: 15px;
+  }
+  .sheetx:active { background: var(--line); }
+
+  /* The day's note: required before the day can be closed, sealed with it. */
+  .notebar {
+    display: block; width: 100%; margin: 14px 0 0; padding: 13px 14px;
+    border-radius: 12px; background: var(--card); border: 1px solid var(--line);
+    font-family: inherit; font-size: 14.5px; color: var(--text); text-align: left;
+  }
+  .notebar:active { background: var(--card-hi); }
+  .notebar small { display: block; font-size: 11.5px; color: var(--dim); margin-top: 3px; }
+  .notebar.need { border-color: #5a4a1c; }
+  .notebar.need small { color: var(--warn); }
+  .daynote { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+  .daynote .dnl { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 5px; }
+  .daynote .dnt { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+  .finalbar[disabled] { opacity: .45; }
 
   select {
     width: 100%; height: 50px; border-radius: 12px;
@@ -195,8 +228,26 @@
   .finaldone { margin:14px 0 4px; padding:12px 14px; border-radius:12px; background:var(--card);
     color:var(--dim); font-size:12px; text-align:center; letter-spacing:.2px; }
   /* point and minute log */
-  .lgday { margin:0 0 14px; }
+  .lgday { margin:0; }
   .lgd { font-size:11px; color:var(--dim); letter-spacing:.4px; text-transform:uppercase; margin:0 0 5px; }
+  /* The log only grows, so it opens as a list of days and nothing else. */
+  .lgtog {
+    display:flex; align-items:center; gap:8px; width:100%; padding:10px 2px;
+    border:0; border-top:1px solid var(--line); background:none;
+    font-family:inherit; text-align:left;
+  }
+  .lgtog:active { background:var(--card-hi); }
+  .lgtog .lgd { flex:1 1 auto; margin:0; }
+  .lgcount { flex:0 0 auto; font-size:11px; color:var(--dimmer); }
+  .lgchev { flex:0 0 auto; font-size:10px; color:var(--dim); display:inline-block; transition:transform .15s; }
+  .lgtog.open .lgchev, .lgntog.open .lgchev { transform:rotate(180deg); }
+  .lgbody { padding:0 0 10px; }
+  .lgntog {
+    display:flex; align-items:center; gap:6px; width:100%; padding:7px 2px;
+    border:0; background:none; font-family:inherit; font-size:12px; color:var(--dim); text-align:left;
+  }
+  .lgntog span.lgnl { flex:1 1 auto; }
+  .lgntext { font-size:12.5px; color:var(--text); line-height:1.5; padding:0 2px 8px; white-space:pre-wrap; }
   .lgrow { display:flex; align-items:baseline; gap:9px; padding:5px 0; border-top:1px solid var(--line); font-size:13px; }
   .lga { flex:0 0 52px; font-weight:650; font-size:11px; letter-spacing:.2px; }
   .lgw { flex:1 1 auto; color:var(--dim); font-size:12px; }
@@ -345,7 +396,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v36';
+  var APP_VERSION = 'v37';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -516,7 +567,7 @@
     RAK: '2026-08-30', JUST8: '2026-08-30', STOP: '2026-08-30', FIT: '2026-08-30'
   };
 
-  var state = { starts: {}, days: {}, finals: {}, startsLocked: {} };
+  var state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {} };
   // Cached results of the J and S walks; cleared on every write.
   // Cached result of the JUST8 pass; cleared on every write.
   var _j8 = null, _stop = null;
@@ -530,6 +581,7 @@
         state.days   = p.days   || {};
         state.finals = p.finals || {};
         state.startsLocked = p.startsLocked || {};
+        state.dayNotes = p.dayNotes || {};
         state.demo   = !!p.demo;
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
         state.demoSeed = p.demoSeed;
@@ -537,6 +589,7 @@
     } catch (e) { /* blocked storage: run from memory this session */ }
     if (!state.finals) state.finals = {};
     if (!state.startsLocked) state.startsLocked = {};
+    if (!state.dayNotes) state.dayNotes = {};
     HABITS.forEach(function (h) {
       if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
     });
@@ -1063,21 +1116,82 @@
       listEl.appendChild(el);
     });
 
+    /* A finalized day still shows what was written about it - the note is the
+       part of a closed day worth coming back for. */
     if (dayFinal(dk)) {
+      if (hasDayNote(dk)) {
+        var dn = document.createElement('div');
+        dn.className = 'daynote';
+        dn.innerHTML = '<div class="dnl">Notes about the day</div>' +
+                       '<div class="dnt">' + escText(dayNote(dk)) + '</div>';
+        listEl.appendChild(dn);
+      }
       var fd = document.createElement('div');
       fd.className = 'finaldone';
       fd.innerHTML = '&#128274; This day is finalized &mdash; locked';
       listEl.appendChild(fd);
     } else if (viewing < today && dayComplete(dk)) {
+      var written = hasDayNote(dk);
+
+      /* The note comes before the lock on purpose. A day closed with no word
+         about it is a row of ticks and nothing else; by the time it matters,
+         what actually happened is gone. */
+      var nb = document.createElement('button');
+      nb.className = 'notebar' + (written ? '' : ' need');
+      nb.innerHTML = 'Notes about the day' +
+        (written ? '<small>Written &mdash; tap to read or change it</small>'
+                 : '<small>Required before this day can be finalized</small>');
+      nb.addEventListener('click', function () { openDayNote(dk); });
+      listEl.appendChild(nb);
+
       var armed = (_armFinal === dk);
       var fb = document.createElement('button');
       fb.className = 'finalbar' + (armed ? ' arm' : '');
-      fb.textContent = armed
-        ? 'Tap again to lock ' + viewing.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' — this cannot be undone'
-        : 'Finalize day?';
-      fb.addEventListener('click', function () { armFinal(dk); });
+      if (!written) {
+        fb.disabled = true;
+        fb.textContent = 'Write the day\'s note first';
+      } else {
+        fb.textContent = armed
+          ? 'Tap again to lock ' + viewing.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' — this cannot be undone'
+          : 'Finalize day?';
+        fb.addEventListener('click', function () { armFinal(dk); });
+      }
       listEl.appendChild(fb);
     }
+  }
+
+  /* Nothing enforces a length. "Nothing to report" is a real answer on a real
+     day; what is not allowed is closing a day having said nothing at all. */
+  function openDayNote(dk) {
+    var when = parse(dk).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+    if (dayFinal(dk)) {
+      sheetEl.innerHTML = head('Notes about the day', when + ' &middot; finalized') +
+        '<div class="daynote" style="margin:0"><div class="dnt">' + escText(dayNote(dk)) + '</div></div>' +
+        '<div class="btns" style="margin-top:14px"><button class="btn ghost" data-act="x">Close</button></div>';
+      sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+      openOv('ovSheet');
+      return;
+    }
+
+    sheetEl.innerHTML = head('Notes about the day', when) +
+      '<div class="field"><textarea id="dnText" placeholder="What happened, how it went, why the day went the way it did" ' +
+        'autocomplete="off">' + escText(dayNote(dk)) + '</textarea></div>' +
+      '<div class="note">This is kept for you, not scored. It cannot be empty &mdash; ' +
+        '&ldquo;nothing to report&rdquo; counts &mdash; and it seals with the day when you finalize.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Cancel</button>' +
+      '<button class="btn go" data-act="save">Save note</button></div>';
+
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    sheetEl.querySelector('[data-act="save"]').addEventListener('click', function () {
+      var v = document.getElementById('dnText').value.trim();
+      if (!v) { toast('Write something first - even "nothing to report"'); return; }
+      setDayNote(dk, v);
+      closeOv('ovSheet');
+      render();
+      toast('Note saved');
+    });
+    openOv('ovSheet');
   }
 
   /* The tick is the one-tap path for the simple cases; anything that needs a
@@ -1143,6 +1257,13 @@
 
   function head(title, sub) {
     return '<div class="grab"></div><h3>' + title + '</h3><div class="sub">' + sub + '</div>';
+  }
+  /* Same header with the exit beside the title. For anything that can grow
+     without limit, the way out has to be reachable without reading to the end. */
+  function headX(title, sub) {
+    return '<div class="grab"></div><div class="hrow"><div>' +
+      '<h3>' + title + '</h3><div class="sub">' + sub + '</div></div>' +
+      '<button class="sheetx" data-act="x" aria-label="Close">&#10005;</button></div>';
   }
   /* Marking a miss has to be undoable. A mis-tap that permanently ends a
      streak years long, with no way back, is the worst thing this app could do. */
@@ -1386,14 +1507,18 @@
            reserve opened against nothing is a reserve opened for no reason,
            and a holiday spent against nothing is one of eight gone with no
            record of what it bought. */
-        '<div class="field"><label>TH8NK access</label>' + (function () {
+        /* The holiday count rides on the label, and only once Holiday is the
+           kind being chosen - it is the price of that choice and means nothing
+           next to a travel day, which costs nothing. */
+        '<div class="field"><label>TH8NK access' +
+          ((e.travPick || e.trav) === 'H' ? ' &nbsp;&middot;&nbsp; ' + holidayNote() : '') +
+        '</label>' + (function () {
           var tp = e.travPick || e.trav || '';
 
           if (!tp) {
             return '<div class="btns">' +
                 '<button class="btn ghost" data-act="access" style="width:100%">Access TH8NK</button>' +
-              '</div>' +
-              '<div class="note" style="margin:8px 0 0">' + holidayNote() + '</div>';
+              '</div>';
           }
 
           if (tp === '?') {
@@ -1401,32 +1526,38 @@
                 '<button class="btn ghost" data-act="ttrav" style="flex:1">Travel day</button>' +
                 '<button class="btn ghost" data-act="tholi" style="flex:1">Holiday</button>' +
               '</div>' +
-              '<div class="note" style="margin:8px 0 0">A travel day costs nothing. A holiday spends one of the ' +
-                HOLIDAYS_PER_YEAR + ' &mdash; ' + holidayNote() + '</div>' +
               '<div class="btns" style="margin-top:9px">' +
                 '<button class="btn ghost" data-act="tclear" style="width:100%">Cancel</button></div>';
           }
 
           var isT = (tp === 'T');
+          var txt = (isT ? e.travWho : e.travWhat) || '';
+
+          /* Confirmed. The entry is over, so the way in disappears and only
+             the record stays - what was written, and what it bought. */
+          if (e.trav) {
+            return '<div class="note" style="margin:0 0 4px">' +
+                (isT ? 'Travel day &#10003; &mdash; the TH8NK is open and no holiday is used.'
+                     : 'Holiday &#10003; &mdash; one of the ' + HOLIDAYS_PER_YEAR + ' is spent.') +
+              '</div>' +
+              '<div class="lgntext" style="padding:0">' + escText(txt) + '</div>';
+          }
+
+          /* Not yet confirmed. Nothing has been spent and the TH8NK is still
+             shut - Confirm is the act, and it will not fire on an empty note. */
           return (isT
               ? '<div class="note" style="margin:0 0 8px">Your rule: someone else with you, and more than 100 miles.</div>'
               : '') +
-            '<input type="text" id="travText" value="' +
-              escAttr(isT ? e.travWho : e.travWhat) + '" placeholder="' +
+            '<input type="text" id="travText" value="' + escAttr(txt) + '" placeholder="' +
               (isT ? 'who you were with, and where' : 'Christmas, Thanksgiving, a birthday') +
               '" autocomplete="off" enterkeyhint="done">' +
-            (e.trav
-              ? '<div class="note" style="margin:8px 0 0">' +
-                  (isT ? 'Travel day &#10003; &mdash; the TH8NK is open and no holiday is used.'
-                       : 'Holiday &#10003; &mdash; one of the ' + HOLIDAYS_PER_YEAR + ' is spent. ' + holidayNote()) +
-                '</div>'
-              : '<div class="warnbox">' +
-                  (isT ? 'Say who you were with and where before this counts.'
-                       : 'Say what you were celebrating before this counts.') +
-                '</div>') +
+            '<div class="warnbox">' +
+              (isT ? 'Say who you were with and where before this counts.'
+                   : 'Say what you were celebrating before this counts.') +
+            '</div>' +
             '<div class="btns" style="margin-top:9px">' +
-              '<button class="btn ghost" data-act="tswitch" style="flex:1">Change kind</button>' +
-              '<button class="btn ghost" data-act="tclear" style="flex:1">Neither</button>' +
+              '<button class="btn go" data-act="tconfirm" style="flex:1">Confirm</button>' +
+              '<button class="btn ghost" data-act="tclear" style="flex:1">Cancel</button>' +
             '</div>';
         })() +
         '</div>' +
@@ -1434,7 +1565,7 @@
            bank" reads the same both ways and the two are not symmetrical: 3 out
            of the TH8NK arrives as 1, while 3 out of the 8ANK lands as 4.
            Neither needs a TH8NK day - the day only governs holidays now. */
-        '<div class="field"><label>Moving points &middot; 8ANK ' + fmt(bank8()) + ' &middot; TH8NK ' + fmt(thank()) + '</label>' +
+        '<div class="field"><label>Moving points</label>' +
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">TH8NK &rarr; 8ANK</div>' +
@@ -1458,6 +1589,23 @@
     }
     wireSheet(dk, id);
     openOv('ovSheet');
+  }
+
+  /* The day's note lives beside the days rather than inside one, because it
+     belongs to the whole day and not to any one habit. It is required before a
+     day can be finalized, and it seals with the day - finalizing already means
+     closed for good, and a note that stayed editable would be the one soft
+     thing inside a hard lock. */
+  function dayNote(dk) { return (state.dayNotes && state.dayNotes[dk]) || ''; }
+  function hasDayNote(dk) { return !!dayNote(dk).trim(); }
+  function setDayNote(dk, v) {
+    if (!state.dayNotes) state.dayNotes = {};
+    state.dayNotes[dk] = v;
+    save();
+  }
+  function escText(v) {
+    return String(v === null || v === undefined ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function escAttr(v) {
@@ -1486,11 +1634,9 @@
 
     function commit(reopen) {
       if (locked) { toast('That day is finalized'); return; }
-      if (id === 'JUST8') {
-        absorbTrav();
-        if (e.travPick === 'T')      e.trav = (e.travWho  || '').trim() ? 'T' : '';
-        else if (e.travPick === 'H') e.trav = (e.travWhat || '').trim() ? 'H' : '';
-      }
+      /* Only Confirm sets e.trav now. Typing used to open the TH8NK on its
+         own, which is why a day could look taken without anyone deciding it. */
+      if (id === 'JUST8') absorbTrav();
       // Free-text fields are read back before anything is written away.
       var f = document.getElementById('fText');
       if (f) {
@@ -1622,11 +1768,20 @@
 
         // 'T' is a plain TH8NK day; 'H' is one that also spends a holiday.
         if (a === 'access') { e.travPick = '?'; commit(true); return; }
-        if (a === 'ttrav')  { e.travPick = 'T'; e.trav = (e.travWho  || '').trim() ? 'T' : ''; commit(true); return; }
-        if (a === 'tholi')  { e.travPick = 'H'; e.trav = (e.travWhat || '').trim() ? 'H' : ''; commit(true); return; }
-        /* Change kind keeps both notes, so going back and forth does not lose
-           what was already typed. Neither clears the day outright. */
-        if (a === 'tswitch') { absorbTrav(); e.travPick = '?'; e.trav = ''; commit(true); return; }
+        if (a === 'ttrav')  { e.travPick = 'T'; e.trav = ''; commit(true); return; }
+        if (a === 'tholi')  { e.travPick = 'H'; e.trav = ''; commit(true); return; }
+        /* Confirm will not fire on an empty note, for the same reason an empty
+           Other is not a day on R: a reserve opened against nothing, or one of
+           eight holidays spent against nothing, is a record of nothing. */
+        if (a === 'tconfirm') {
+          absorbTrav();
+          var tval = ((e.travPick === 'T' ? e.travWho : e.travWhat) || '').trim();
+          if (!tval) {
+            toast(e.travPick === 'T' ? 'Say who you were with and where' : 'Say what you were celebrating');
+            return;
+          }
+          e.trav = e.travPick; commit(true); return;
+        }
         if (a === 'tclear')  { e.travPick = ''; e.trav = ''; e.travWho = ''; e.travWhat = ''; commit(true); return; }
 
         if (a === 'thank3') {
@@ -1753,14 +1908,14 @@
        the sandbox is for practising both, and a practice day locked forever
        would only be in the way. */
     state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START,
-              rakList: state.rakList, finals: {}, startsLocked: {} };
+              rakList: state.rakList, finals: {}, startsLocked: {}, dayNotes: {} };
     _j8 = null; _stop = null;
     save(); render();
     toast('Sample data loaded');
   }
 
   function wipeAll() {
-    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, rakList: state.rakList };   // shortlist survives a wipe
+    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, rakList: state.rakList };   // shortlist survives a wipe
     HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
     _j8 = null; _stop = null;
     save(); render();
@@ -1917,27 +2072,53 @@
     }
     add(j8().log); add(stop().log);
 
-    var keys = Object.keys(days).sort().reverse().filter(function (dk) { return days[dk].length; });
+    /* A day whose only entry is its note still belongs here - the note is the
+       reason to look a year later, and points are not the only record. */
+    Object.keys(state.dayNotes || {}).forEach(function (dk) {
+      if (dayNote(dk).trim() && !days[dk]) days[dk] = [];
+    });
+
+    var keys = Object.keys(days).sort().reverse().filter(function (dk) {
+      return days[dk].length || dayNote(dk).trim();
+    });
     var shown = keys.slice(0, 200);
 
     var body = shown.map(function (dk) {
       var rows = days[dk].slice().sort(function (a, b) {
         return LOG_ACCTS.indexOf(a.acct) - LOG_ACCTS.indexOf(b.acct);
       });
-      return '<div class="lgday"><div class="lgd">' +
-        parse(dk).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) +
-        (dayFinal(dk) ? ' &#128274;' : '') + '</div>' +
-        rows.map(function (r) {
-          var unit = (r.acct === 'Bank' || r.acct === 'Tank') ? ' min' : ' pt';
-          return '<div class="lgrow"><span class="lga">' + r.acct + '</span>' +
-            '<span class="lgw">' + r.why + '</span>' +
-            '<span class="lgv ' + (r.amt > 0 ? 'up' : 'dn') + '">' +
-              (r.amt > 0 ? '+' : '−') + fmt(Math.abs(r.amt)) + unit + '</span></div>';
-        }).join('') +
+      var note = dayNote(dk);
+      var bits = [];
+      if (rows.length) bits.push(rows.length + (rows.length === 1 ? ' move' : ' moves'));
+      if (note.trim())  bits.push('note');
+
+      return '<div class="lgday">' +
+        '<button class="lgtog" data-lgday="' + dk + '">' +
+          '<span class="lgd">' +
+            parse(dk).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) +
+            (dayFinal(dk) ? ' &#128274;' : '') +
+          '</span>' +
+          '<span class="lgcount">' + bits.join(' &middot; ') + '</span>' +
+          '<span class="lgchev">&#9660;</span>' +
+        '</button>' +
+        '<div class="lgbody" data-lgbody="' + dk + '" hidden>' +
+          (note.trim()
+            ? '<button class="lgntog" data-lgnote="' + dk + '">' +
+                '<span class="lgnl">Notes about the day</span><span class="lgchev">&#9660;</span></button>' +
+              '<div class="lgntext" data-lgntext="' + dk + '" hidden>' + escText(note) + '</div>'
+            : '') +
+          rows.map(function (r) {
+            var unit = (r.acct === 'Bank' || r.acct === 'Tank') ? ' min' : ' pt';
+            return '<div class="lgrow"><span class="lga">' + r.acct + '</span>' +
+              '<span class="lgw">' + r.why + '</span>' +
+              '<span class="lgv ' + (r.amt > 0 ? 'up' : 'dn') + '">' +
+                (r.amt > 0 ? '+' : '−') + fmt(Math.abs(r.amt)) + unit + '</span></div>';
+          }).join('') +
+        '</div>' +
       '</div>';
     }).join('');
 
-    sheetEl.innerHTML = head('Point and minute log', 'Everything earned, used and moved') +
+    sheetEl.innerHTML = headX('Point and minute log', 'A day at a time &mdash; tap one to open it') +
       '<div class="note">Now &mdash; 8ANK <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK <b>' + fmt(thank()) +
         '</b> &nbsp;&middot;&nbsp; Bank <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank <b>' + fmt(stopTank()) + ' min</b></div>' +
       (body || '<div class="note">Nothing has moved yet.</div>') +
@@ -1945,7 +2126,28 @@
         ? '<div class="note">Showing the most recent ' + shown.length + ' days with movement, of ' + keys.length + '.</div>'
         : '') +
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
-    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-act="x"]'), function (b) {
+      b.addEventListener('click', function () { closeOv('ovSheet'); });
+    });
+    /* Each day opens on its own, and the note inside it opens on its own again,
+       so a long note never has to be scrolled past to reach the next day. */
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-lgday]'), function (b) {
+      b.addEventListener('click', function () {
+        var el = sheetEl.querySelector('[data-lgbody="' + b.getAttribute('data-lgday') + '"]');
+        if (!el) return;
+        el.hidden = !el.hidden;
+        b.classList.toggle('open', !el.hidden);
+      });
+    });
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-lgnote]'), function (b) {
+      b.addEventListener('click', function () {
+        var el = sheetEl.querySelector('[data-lgntext="' + b.getAttribute('data-lgnote') + '"]');
+        if (!el) return;
+        el.hidden = !el.hidden;
+        b.classList.toggle('open', !el.hidden);
+      });
+    });
     openOv('ovSheet');
   }
 
@@ -2252,6 +2454,7 @@
           days:         found.days   || {},
           finals:       found.finals || {},
           startsLocked: found.startsLocked || {},
+          dayNotes:     found.dayNotes || {},
           rakList:      found.rakList || state.rakList,
           demo:         found.demo,
           demoSeed:     found.demoSeed
