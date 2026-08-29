@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v21';
+  var APP_VERSION = 'v22';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -831,8 +831,12 @@
   function head(title, sub) {
     return '<div class="grab"></div><h3>' + title + '</h3><div class="sub">' + sub + '</div>';
   }
-  function missBtn() {
-    return '<button class="btn danger" data-act="miss">Miss</button>';
+  /* Marking a miss has to be undoable. A mis-tap that permanently ends a
+     streak years long, with no way back, is the worst thing this app could do. */
+  function missBtn(e) {
+    return (e && e.miss)
+      ? '<button class="btn danger" data-act="miss" style="box-shadow:inset 0 0 0 2px var(--danger)">Missed &mdash; undo</button>'
+      : '<button class="btn danger" data-act="miss">Miss</button>';
   }
   function doneBtn() {
     return '<button class="btn go" data-act="close">Done</button>';
@@ -850,7 +854,7 @@
       html = head('BED', when) +
         '<div class="btns" style="margin-bottom:10px">' +
           '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Made &#10003;' : 'Made') + '</button>' +
-        '</div>' + '<div class="btns">' + missBtn() + doneBtn() + '</div>';
+        '</div>' + '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
     else if (id === 'H2Only') {
@@ -908,7 +912,7 @@
           '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Done &#10003;' : 'Mark done') + '</button>' +
         '</div>' +
         picker +
-        '<div class="btns">' + missBtn() + doneBtn() + '</div>';
+        '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
     else if (id === 'WERKOUTS') {
@@ -926,7 +930,7 @@
             return '<button class="chip' + (types.indexOf(w) !== -1 ? ' on' : '') + '" data-werk="' + w + '">' + w + '</button>';
           }).join('') +
         '</div></div>' +
-        '<div class="btns">' + missBtn() + doneBtn() + '</div>';
+        '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
     else if (id === 'STOP') {
@@ -995,7 +999,7 @@
             '<div class="val" id="mptsVal">' + fmt(e.mPts || 0) + ' pt</div>' +
             '<button data-act="mpts+">+</button>' +
           '</div></div>' +
-        '<div class="btns">' + missBtn() + doneBtn() + '</div>';
+        '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
     else if (id === 'JUST8') {
@@ -1055,7 +1059,7 @@
             '<button class="btn ghost" data-act="dep3">Deposit 3 &rarr; +4</button>' +
           '</div>' +
         '</div>' +
-        '<div class="btns">' + missBtn() + doneBtn() + '</div>';
+        '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
     sheetEl.innerHTML = html;
@@ -1109,9 +1113,16 @@
 
         if (a === 'close') { commit(false); closeOv('ovSheet'); return; }
         if (a === 'miss')  {
+          var when = parse(dk).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+          if (e.miss) {                       // tapped again: put the streak back
+            e.miss = false;
+            commit(true);                     // stay open so the change is visible
+            toast(id + ' miss cleared');
+            return;
+          }
           e.miss = true; e.done = false; commit(false); closeOv('ovSheet');
           // Name the day back, since a miss is often entered days after the fact.
-          toast(id + ' missed on ' + parse(dk).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+          toast(id + ' missed on ' + when);
           return;
         }
         if (a === 'done')  { e.done = !e.done; e.miss = false; commit(true); return; }
