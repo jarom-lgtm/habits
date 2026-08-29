@@ -285,10 +285,6 @@
   }
   .keypad button:active { background: var(--card-hi); }
   .keypad button.flat { background: none; font-size: 14px; color: var(--dim); }
-  .lock .forgot {
-    margin-top: 26px; border: 0; background: none; font-family: inherit;
-    font-size: 12.5px; color: var(--dimmer); text-decoration: underline;
-  }
 </style>
 </head>
 <body>
@@ -335,7 +331,6 @@
     <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
     <button class="flat" data-k="c">Clear</button><button data-k="0">0</button><button class="flat" data-k="b">&#9003;</button>
   </div>
-  <button class="forgot" id="lockForgot">Forgot your PIN?</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -350,7 +345,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v35';
+  var APP_VERSION = 'v36';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -1990,8 +1985,6 @@
     lockSay(lockMode === 'enter'
       ? 'Habits is locked'
       : 'Four digits. You will type this whenever the app opens fresh.');
-    document.getElementById('lockForgot').style.display =
-      (lockMode === 'enter' && pinIsSet()) ? '' : 'none';
     document.documentElement.classList.add('locked');
   }
   function hideLock() {
@@ -2056,13 +2049,6 @@
     /* A beat so the fourth dot is actually seen filling before the screen
        reacts - without it a correct PIN looks like nothing was typed. */
     if (pinEntry.length === 4) setTimeout(entryDone, 90);
-  });
-
-  /* Honest rather than useful: there is no bypass, because a bypass a
-     stranger could also press is not a lock. Saying so costs nothing - the
-     way back in requires wiping the data, which is not a quiet act. */
-  document.getElementById('lockForgot').addEventListener('click', function () {
-    lockSay('There is no way past this. Clearing the browser\'s site data removes the PIN and the history together - a backup export is what puts the history back.', true);
   });
 
   /* ---------------- pin menu ---------------- */
