@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v20';
+  var APP_VERSION = 'v21';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -721,6 +721,9 @@
     if (!e) return '';
     if (id === 'RAK')  return e.note || '';
     if (id === 'NOTE') return e.who || '';
+    // The letters are the useful half of a workout - the minutes are nearly
+    // always the same 31.
+    if (id === 'WERKOUTS') return (e.types && e.types.length) ? e.types.join('') : '';
     return '';
   }
 
@@ -780,19 +783,27 @@
      number or a name opens its sheet instead of guessing. */
   function quickTap(dk, h) {
     if (daysBetween(parse(state.starts[h.id]), parse(dk)) < 0) { toast(h.id + ' has not started yet'); return; }
-    if (h.id === 'BED' || h.id === 'RAK' || h.id === 'NOTE' || h.id === 'WERKOUTS') {
+    /* W, J and F cannot be ticked from the list. Each of them is only true once
+       something specific has been entered - the minutes and which kinds, the
+       two ends of the eating window, a phone-down time - and a tick that meant
+       "done" without any of that would be a claim with nothing behind it. The
+       tick opens the sheet instead. */
+    if (h.id === 'WERKOUTS' || h.id === 'JUST8' || h.id === 'FIT') {
+      openSheet(dk, h.id);
+      return;
+    }
+
+    if (h.id === 'BED' || h.id === 'RAK' || h.id === 'NOTE') {
       var e = entry(dk, h.id, true);
       e.done = !e.done;
       if (!e.done) e.miss = false;
-      // The tick is the "did the whole thing" shortcut; the sheet is where a
-      // partial gets walked down.
-      if (h.id === 'WERKOUTS') e.min = e.done ? WERK_FULL : 0;
       prune(dk, h.id); save(); render();
       if (h.id === 'RAK' && e.done && !e.note) openSheet(dk, 'RAK');
       if (h.id === 'NOTE' && e.done && !e.who) openSheet(dk, 'NOTE');
       return;
     }
-    if (h.id === 'H2Only' || h.id === 'STOP' || h.id === 'FIT') {
+
+    if (h.id === 'H2Only' || h.id === 'STOP') {
       var t = entry(dk, h.id, true);
       t.logged = !t.logged;
       prune(dk, h.id); save(); render();
@@ -920,11 +931,11 @@
 
     else if (id === 'STOP') {
       html = head('STOP', when) +
-        '<div class="note">Bank right now: <b>' + fmt(stopBank()) + ' min</b>. A clean day adds one. ' +
-          'Going below zero is the miss &mdash; the bank then starts again from zero, so it is not held against you twice.</div>' +
+        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b></div>' +
+        // A slip is not a miss - the bank absorbs it. Calling it one was wrong.
         '<div class="btns" style="margin-bottom:14px">' +
-          '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Hit</button>' +
-          '<button class="btn ' + (e.slip ? 'danger' : 'ghost') + '" data-act="slip">Miss</button>' +
+          '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Good</button>' +
+          '<button class="btn ' + (e.slip ? 'danger' : 'ghost') + '" data-act="slip">Slip</button>' +
         '</div>' +
         (e.slip ? '<div class="field"><label>Minutes it cost</label>' +
           '<div class="stepper">' +
@@ -1022,7 +1033,7 @@
             '<div class="val" id="cupSVal">' + fmt(e.cupS || 0) + '</div>' +
             '<button data-act="cupS+">+</button>' +
           '</div></div>' +
-        '<div class="field"><label>The TH8NK only opens on a TH8NK day</label>' +
+        '<div class="field"><label>TH8NK day</label>' +
           '<div class="btns">' +
             '<button class="btn ' + (e.trav ? 'go' : 'ghost') + '" data-act="tday">' +
               (e.trav ? 'TH8NK day &#10003;' : 'Make it a TH8NK day') + '</button>' +
@@ -1038,7 +1049,7 @@
         /* Both directions are always on screen. Hiding the pull on an ordinary
            day made it look like the feature had vanished; it now sits there and
            says why it will not go through. */
-        '<div class="field"><label>TH8NK' + (e.trav ? ' &middot; ' + fmt(thank()) + ' there' : '') + '</label>' +
+        '<div class="field"><label>Bank to bank' + (e.trav ? ' &middot; ' + fmt(thank()) + ' in the TH8NK' : '') + '</label>' +
           '<div class="btns">' +
             '<button class="btn ghost" data-act="thank3">Pull 3 &rarr; +1</button>' +
             '<button class="btn ghost" data-act="dep3">Deposit 3 &rarr; +4</button>' +
@@ -1181,6 +1192,12 @@
         var i = t.indexOf(w);
         if (i === -1) t.push(w); else t.splice(i, 1);
         e.types = WERK.filter(function (x) { return t.indexOf(x) !== -1; });   // keep WERKOUTS order
+        /* Picking what you did is the act of logging it. The minutes are
+           already sitting at a full session unless they were stepped down, so
+           there is nothing else to confirm. */
+        e.min = werkMin(e);
+        e.done = (e.min >= WERK_FULL && e.types.length > 0);
+        e.logged = true;
         commit(true);
       });
     });
