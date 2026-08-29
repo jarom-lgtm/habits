@@ -267,6 +267,7 @@
     <div class="grab"></div>
     <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
+    <button class="row" id="mRestore"><span class="ic">&#8600;</span><span>Restore from a backup<small>Put an export back, after a wipe or a new phone</small></span></button>
     <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point and minute log<small>Every movement, earned and used, one timeline</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
@@ -285,7 +286,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v32';
+  var APP_VERSION = 'v33';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -1780,7 +1781,8 @@
       'Everything you tap stays on this phone. Nothing is uploaded, there is no account, and it works with no signal.<br><br>' +
       '<b>Every streak holds by default.</b> Days you never opened the app still count as kept. Nothing breaks until you say it broke.<br><br>' +
       'To record a miss after the fact, <b>tap the date at the top</b>, pick the day it happened, then open that habit and choose Miss. Same for filling in details from days you were offline.<br><br>' +
-      'Because the data is only here, use <b>Export for Claude</b> now and then so the history reaches HEALTH.md. Clearing this browser\'s site data erases everything, so export before doing that.' +
+      'Because the data is only here, use <b>Export for Claude</b> now and then so the history reaches HEALTH.md. Clearing this browser\'s site data erases everything, so export before doing that.<br><br>' +
+      'An export can be put back with <b>Restore from a backup</b> &mdash; paste the whole thing in, including the last line.' +
       '</div><div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
     openOv('ovSheet');
@@ -1845,7 +1847,7 @@
       if (bits.length) o.push(dk + '  ' + bits.join('  |  '));
     });
     o.push('');
-    o.push('--- BACKUP (for restoring the app, ignore otherwise) ---');
+    o.push('--- BACKUP - paste this whole export into Restore from a backup ---');
     o.push(JSON.stringify(state));
     return o.join('\n');
   }
@@ -1870,6 +1872,81 @@
       } else { toast(ok ? 'Copied' : 'Select the text and copy'); }
     });
     openOv('ovSheet');
+  });
+
+  /* ---------------- restore ----------------
+     The export has always carried a whole backup on its last line and there was
+     no way to put it back, which made it a backup in name only - the copy would
+     have had to be reinstated by hand. The paste is searched from the bottom up
+     for the last line that parses and looks like a state, so pasting the entire
+     export works as well as pasting only that line. */
+  function findBackup(text) {
+    var lines = String(text).split(/\r?\n/);
+    for (var i = lines.length - 1; i >= 0; i--) {
+      var t = lines[i].trim();
+      if (t.charAt(0) !== '{') continue;
+      try {
+        var o = JSON.parse(t);
+        if (o && typeof o === 'object' && o.starts && o.days) return o;
+      } catch (err) { /* not the line, keep walking up */ }
+    }
+    return null;
+  }
+
+  function openRestore() {
+    sheetEl.innerHTML = head('Restore from a backup', 'Paste an export, or just its last line') +
+      '<textarea id="rsText" placeholder="Paste the export here"></textarea>' +
+      '<div class="note" id="rsInfo">Everything in the app now will be replaced by what is in the backup.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
+      '<button class="btn go" id="rsGo">Check it</button></div>';
+
+    /* Two steps on purpose: the first reads the paste and says what is in it,
+       the second is the decision. Restoring the wrong file silently over a
+       year of history is the one mistake this sheet could make. */
+    var found = null;
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    document.getElementById('rsGo').addEventListener('click', function () {
+      var ta   = document.getElementById('rsText');
+      var info = document.getElementById('rsInfo');
+      var btn  = document.getElementById('rsGo');
+
+      if (found) {
+        state = {
+          starts:       found.starts || {},
+          days:         found.days   || {},
+          finals:       found.finals || {},
+          startsLocked: found.startsLocked || {},
+          rakList:      found.rakList || state.rakList,
+          demo:         found.demo,
+          demoSeed:     found.demoSeed
+        };
+        HABITS.forEach(function (h) {
+          if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
+        });
+        _j8 = null; _stop = null;
+        save(); render(); closeOv('ovSheet');
+        toast('Restored ' + Object.keys(state.days).length + ' days');
+        return;
+      }
+
+      var o = findBackup(ta.value);
+      if (!o) { toast('No backup found in that text'); return; }
+      var dks = Object.keys(o.days || {}).sort();
+      found = o;
+      info.innerHTML =
+        '<b>' + dks.length + ' day' + (dks.length === 1 ? '' : 's') + '</b>' +
+        (dks.length ? ' &nbsp;&middot;&nbsp; ' + shortDate(dks[0]) + ' &rarr; ' + shortDate(dks[dks.length - 1]) : '') +
+        (o.finals && Object.keys(o.finals).length
+          ? ' &nbsp;&middot;&nbsp; ' + Object.keys(o.finals).length + ' finalized' : '') +
+        '<br><br>This replaces everything in the app now, and cannot be undone.';
+      btn.textContent = 'Replace everything';
+      btn.className = 'btn danger';
+    });
+    openOv('ovSheet');
+  }
+
+  document.getElementById('mRestore').addEventListener('click', function () {
+    closeOv('ovMenu'); openRestore();
   });
 
   /* ---------------- nav ---------------- */
