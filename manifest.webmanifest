@@ -1,7 +1,7 @@
 {
-  "name": "Habits",
-  "short_name": "Habits",
-  "description": "A private daily habit tracker that works offline.",
+  "name": "CHECK",
+  "short_name": "CHECK",
+  "description": "A private daily tracker that works offline.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

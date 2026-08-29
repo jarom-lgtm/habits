@@ -3,19 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-<title>Habits</title>
+<title>CHECK</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f1115">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Habits">
+<meta name="apple-mobile-web-app-title" content="CHECK">
 <link rel="apple-touch-icon" href="icon-180.png">
 <script>
   /* Runs before any markup paints. If a PIN is set the page starts locked, so
      there is never a frame in which the day's entries are on screen waiting
      for the app code to load. The key is spelled out because this runs before
-     the app's own constants exist - it must stay in step with PIN_KEY below. */
+     the app's own constants exist - it must stay in step with PIN_KEY below.
+     The habits. prefix is deliberate everywhere: the app is named CHECK now,
+     but the storage keys are where the data actually lives and renaming them
+     would orphan every entry and the PIN along with them. */
   try { if (localStorage.getItem('habits.pin')) document.documentElement.classList.add('locked'); } catch (e) {}
 </script>
 <style>
@@ -298,7 +301,7 @@
   /* ---------------- pin lock ----------------
      A casual gate, not encryption. Whoever can reach this phone's browser
      storage can read the data with or without the PIN; the only job here is
-     that a person handed an unlocked phone cannot open Habits and change
+     that a person handed an unlocked phone cannot open CHECK and change
      things. Cold start only, by choice - see the boot block. */
   .lock { display: none; }
   html.locked .lock {
@@ -370,7 +373,7 @@
 
 <div class="lock" id="lockScreen">
   <div class="lockttl" id="lockTtl">Enter PIN</div>
-  <div class="locksub" id="lockMsg">Habits is locked</div>
+  <div class="locksub" id="lockMsg">CHECK is locked</div>
   <div class="dots" id="lockDots"><i></i><i></i><i></i><i></i></div>
   <div class="keypad" id="lockPad">
     <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
@@ -392,7 +395,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v40';
+  var APP_VERSION = 'v41';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -2159,7 +2162,7 @@
     pinEntry = ''; pendingPin = ''; paintDots();
     lockTtlEl.textContent = lockMode === 'enter' ? 'Enter PIN' : 'Choose a PIN';
     lockSay(lockMode === 'enter'
-      ? 'Habits is locked'
+      ? 'CHECK is locked'
       : 'Four digits. You will type this whenever the app opens fresh.');
     document.documentElement.classList.add('locked');
   }
@@ -2247,7 +2250,7 @@
     if (!pinIsSet()) {
       sheetEl.innerHTML = head('Turn on the PIN lock', 'Asked when the app opens fresh') +
         '<div class="note">' +
-        'This stops someone holding your unlocked phone from opening Habits and changing things. It is <b>not</b> encryption - it does not protect the data from anyone who knows their way around a browser.<br><br>' +
+        'This stops someone holding your unlocked phone from opening CHECK and changing things. It is <b>not</b> encryption - it does not protect the data from anyone who knows their way around a browser.<br><br>' +
         '<b>You are asked on a fresh open only.</b> If the app is still open in the background, tapping back to it walks straight in. Use <b>Lock now</b> before handing the phone over.<br><br>' +
         '<b>There is no way back in without it.</b> Run <b>Export for Claude</b> first, so a forgotten PIN costs a reinstall and nothing else.' +
         '</div>' +
@@ -2298,7 +2301,7 @@
   /* ---------------- export ---------------- */
   function buildExport() {
     var o = [];
-    o.push('HABITS EXPORT - ' + key(today));
+    o.push('CHECK EXPORT - ' + key(today));
     o.push('');
     o.push('BANKS   8ANK ' + fmt(bank8()) + '   TH8NK ' + fmt(thank()) + '   STOP ' + fmt(stopBank()) + ' min');
     o.push('');

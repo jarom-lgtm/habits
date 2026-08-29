@@ -1,6 +1,6 @@
-# Habits
+# CHECK
 
-A private, offline habit tracker. Install it to the phone home screen and it
+A private, offline daily tracker. Install it to the phone home screen and it
 opens full-screen, works with no signal, and keeps every entry on the device.
 No account, no server, no analytics, nothing uploaded.
 
@@ -46,7 +46,7 @@ plain-text summary plus a JSON backup for exactly this reason.
 
 ## Updating it
 
-Edit, then **bump `CACHE` in `sw.js`** (`habits-v3` → `habits-v4`). Phones hold
+Edit, then **bump `CACHE` in `sw.js`** (`check-v41` → `check-v42`). Phones hold
 the old version until that string changes, so an edit without a bump looks like
 nothing happened. Even with a bump, an already-open app may need one extra
 close-and-reopen before the new version takes.
