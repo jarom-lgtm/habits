@@ -392,7 +392,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v39';
+  var APP_VERSION = 'v40';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -824,6 +824,17 @@
          a rescue he did not ask for is a decision taken away from him. */
 
       res.misses[dk] = (bank < 0);                // nothing left to reach for
+
+      /* Same rule the Bank on S has always had: the miss IS the penalty, so
+         the shortfall is written off with it and the next day opens at zero.
+         Carried forward, one heavy day charged itself again every morning
+         until it had been earned back - which read as a fortnight of failures
+         for a single evening, and made the balance a thing to fear rather than
+         a thing to spend. */
+      if (bank < 0) {
+        mv(res, dk, '8ANK', -bank, 'shortfall written off with the miss');
+        bank = 0;
+      }
       d = addDays(d, 1);
     }
 
