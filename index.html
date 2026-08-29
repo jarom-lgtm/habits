@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v18';
+  var APP_VERSION = 'v19';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -638,6 +638,7 @@
     for (var i = 0; i <= n; i++) {
       var e = get(key(d), 'STOP');
       if (e && e.slip) bank -= (e.min || 0); else bank += 1;
+      if (e && e.cashed) bank -= e.cashed;   // cashing out is one-way
       d = addDays(d, 1);
     }
     return bank;
@@ -653,6 +654,7 @@
     for (var i = 0; i <= n; i++) {
       var dk = key(d), e = get(dk, 'STOP');
       if (e && e.slip) bank -= (e.min || 0); else bank += 1;
+      if (e && e.cashed) bank -= e.cashed;   // cashing out is one-way
       var isMiss = bank < 0;
       if (isMiss !== !!(e && e.miss)) {
         var t = entry(dk, 'STOP', true);
@@ -807,7 +809,7 @@
     return '<div class="grab"></div><h3>' + title + '</h3><div class="sub">' + sub + '</div>';
   }
   function missBtn() {
-    return '<button class="btn danger" data-act="miss">Mark missed</button>';
+    return '<button class="btn danger" data-act="miss">Miss</button>';
   }
   function doneBtn() {
     return '<button class="btn go" data-act="close">Done</button>';
@@ -824,7 +826,7 @@
     if (id === 'BED') {
       html = head('BED', when) +
         '<div class="btns" style="margin-bottom:10px">' +
-          '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Made &#10003;' : 'Mark made') + '</button>' +
+          '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Made &#10003;' : 'Made') + '</button>' +
         '</div>' + '<div class="btns">' + missBtn() + doneBtn() + '</div>';
     }
 
@@ -839,14 +841,17 @@
 
     else if (id === 'RAK' || id === 'NOTE') {
       var isRak = (id === 'RAK');
-      var label = isRak ? 'What you did' : 'Who you wrote to';
+      var label = isRak ? 'What you did' : 'Details';
       var val   = isRak ? (e.note || '') : (e.who || '');
       var esc   = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); };
 
       var picker = '';
       if (isRak) {
         var list = rakList();
-        var known = list.indexOf(val) !== -1;
+        var known = list.indexOf(val) !== -1 || RAK_SEED.indexOf(val) !== -1;
+        var opt = function (a) {
+          return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
+        };
         /* The value decides the selection, not the flag that opened the box.
            Once something typed has joined the list it is a normal choice, so
            it shows as picked rather than stranding the box open under it. */
@@ -855,15 +860,14 @@
           '<div class="field"><label>' + label + '</label>' +
             '<select id="rakPick">' +
               '<option value=""' + (mode === '' ? ' selected' : '') + '>Choose one&hellip;</option>' +
-              /* Other sits second, not last: Held the door, Other, Picked up
-                 trash - H O P, which is how he remembers the list. */
-              list.slice(0, 1).map(function (a) {
-                return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
-              }).join('') +
+              /* The three anchors keep their places whatever gets learned:
+                 Held the door, Other, Picked up trash - H O P. Without pinning
+                 them, a typed act floating to the top scrambled the order he
+                 remembers the list by. */
+              opt(RAK_SEED[0]) +
               '<option value="__other"' + (mode === '__other' ? ' selected' : '') + '>Other&hellip;</option>' +
-              list.slice(1).map(function (a) {
-                return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
-              }).join('') +
+              opt(RAK_SEED[1]) +
+              list.filter(function (a) { return RAK_SEED.indexOf(a) === -1; }).map(opt).join('') +
             '</select>' +
           '</div>' +
           (mode === '__other'
@@ -915,6 +919,12 @@
             '<div class="val" id="sminVal">' + (e.min || 0) + '</div>' +
             '<button data-act="smin+">+</button>' +
           '</div></div>' : '') +
+        /* One-way. Minutes leave the bank and do not come back, so this is a
+           deliberate button rather than a stepper that can drift up and down. */
+        '<div class="field"><label>Cash out &mdash; a minute is $5' +
+          (e.cashed ? ' &middot; ' + e.cashed + ' out today, $' + (e.cashed * 5) : '') + '</label>' +
+          '<div class="btns"><button class="btn ghost" data-act="cash1">Cash 1 min &rarr; $5</button></div>' +
+        '</div>' +
         '<div class="btns">' + doneBtn() + '</div>';
     }
 
@@ -939,13 +949,11 @@
           '</div>' +
           /* Marking it after the fact is the common case - the phone goes down
              and does not come back up to be tapped. */
-          (e.bed ? '' :
-            '<div class="btns" style="margin-top:9px">' +
-              '<button class="btn ghost" data-act="bedok">I was in before 12</button>' +
-            '</div>') +
+          '<div class="btns" style="margin-top:9px">' +
+            '<button class="btn ghost" data-act="bedok">I was in before 12</button>' +
+          '</div>' +
           '<div class="note" style="margin:8px 0 0">' + bedLine + '</div>' +
         '</div>' +
-        '<div class="note">Tap a letter to cycle it: off &rarr; <b>-u</b> &rarr; <b>-U</b> &rarr; <b>-X</b>. The day allows two <b>u</b>, or one <b>U</b>. <b>X</b> is a blown day on its own.</div>' +
         '<div class="field"><div class="chips">' +
           FITB.map(function (f) {
             var v = items[f] || '';
@@ -973,7 +981,7 @@
            A reserve you cannot touch is not information, it is temptation. */
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
           (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b>' : '') +
-          ' &nbsp;&middot;&nbsp; today costs <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
+          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
         (bank8() < 0
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
             'cover it from the TH8NK on a TH8NK day, or the day is a miss.</div>'
@@ -1014,17 +1022,14 @@
               '<div class="note" style="margin:8px 0 0">' + holidayNote() + '</div>'
             : '') +
         '</div>' +
-        (j8().open[dk]
-          ? '<div class="field"><label>Pull from TH8NK &mdash; arrives at a third (' + fmt(thank()) + ' there)</label>' +
-              '<div class="btns"><button class="btn ghost" data-act="thank3">Pull 3 &rarr; +1 pt</button></div>' +
-            '</div>'
-          : '<div class="note">The TH8NK is shut today' +
-            (e.trav === 'H' ? ' &mdash; this year\'s 8 holidays are already used' : '') +
-            '. ' + (e.trav ? '' : 'Mark it a TH8NK day above to reach it. ') +
-            'An 8ANK below zero is a miss while it stays shut.</div>') +
-        '<div class="field"><label>Put 3 into the TH8NK &mdash; lands as 4' + (e.thankDep ? ' (' + e.thankDep + ' in today)' : '') +
-          ' &middot; ' + fmt(j8().depAvail[dk] || 0) + ' spare today</label>' +
-          '<div class="btns"><button class="btn ghost" data-act="dep3">Deposit 3 &rarr; +4</button></div>' +
+        /* Both directions are always on screen. Hiding the pull on an ordinary
+           day made it look like the feature had vanished; it now sits there and
+           says why it will not go through. */
+        '<div class="field"><label>TH8NK' + (e.trav ? ' &middot; ' + fmt(thank()) + ' there' : '') + '</label>' +
+          '<div class="btns">' +
+            '<button class="btn ghost" data-act="thank3">Pull 3 &rarr; +1</button>' +
+            '<button class="btn ghost" data-act="dep3">Deposit 3 &rarr; +4</button>' +
+          '</div>' +
         '</div>' +
         '<div class="btns">' + missBtn() + doneBtn() + '</div>';
     }
@@ -1091,8 +1096,8 @@
         if (a === 'clean') { e.slip = false; e.min = 0; e.logged = true; commit(true); return; }
         if (a === 'slip')  { e.slip = true;  e.logged = true; commit(true); return; }
 
-        if (a === 'min-')  { e.min = Math.max(0, werkMin(e) - 5);          e.done = (e.min >= WERK_FULL); commit(true); return; }
-        if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); e.done = (e.min >= WERK_FULL); commit(true); return; }
+        if (a === 'min-')  { e.min = Math.max(0, werkMin(e) - 5);          e.done = (e.min >= WERK_FULL); e.logged = true; commit(true); return; }
+        if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); e.done = (e.min >= WERK_FULL); e.logged = true; commit(true); return; }
         if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
         if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
         if (a === 'mpts-') { e.mPts = Math.max(0, Math.round(((e.mPts || 0) - 0.25) * 100) / 100); commit(true); return; }
@@ -1106,7 +1111,7 @@
         /* Stamping the time grades M by itself and sets the points it costs.
            Both stay adjustable below - the clock reports, it does not rule. */
         if (a === 'bedok') {
-          e.bed = '23:00';                       // stands for "in before twelve"
+          e.bed = '23:59';                       // stands for "in before twelve"
           if (e.items) delete e.items.M;
           e.mPts = 0; e.logged = true;
           commit(true); toast('In before 12'); return;
@@ -1125,7 +1130,17 @@
           return;
         }
 
-        if (a === 'eatstart') { e.eatStart = e.eatStart ? '' : nowHM(); commit(true); return; }
+        if (a === 'cash1') {
+          if (stopBank() < 1) { toast('Nothing in the bank to cash'); return; }
+          e.cashed = (e.cashed || 0) + 1;
+          e.logged = true; commit(true); toast('Cashed 1 min - $5'); return;
+        }
+        if (a === 'eatstart') {
+          // One-way. The window opened when it opened; letting it be unclicked
+          // would quietly rewrite the day.
+          if (e.eatStart) { toast('Already started at ' + e.eatStart); return; }
+          e.eatStart = nowHM(); commit(true); return;
+        }
         if (a === 'eatend')   { e.eatEnd   = e.eatEnd   ? '' : nowHM(); commit(true); return; }
 
         // 'T' is a plain TH8NK day; 'H' is one that also spends a holiday.
@@ -1334,7 +1349,7 @@
       '<div class="note">' +
       'Everything you tap stays on this phone. Nothing is uploaded, there is no account, and it works with no signal.<br><br>' +
       '<b>Every streak holds by default.</b> Days you never opened the app still count as kept. Nothing breaks until you say it broke.<br><br>' +
-      'To record a miss after the fact, <b>tap the date at the top</b>, pick the day it happened, then open that habit and choose Mark missed. Same for filling in details from days you were offline.<br><br>' +
+      'To record a miss after the fact, <b>tap the date at the top</b>, pick the day it happened, then open that habit and choose Miss. Same for filling in details from days you were offline.<br><br>' +
       'Because the data is only here, use <b>Export for Claude</b> now and then so the history reaches HEALTH.md. Clearing this browser\'s site data erases everything, so export before doing that.' +
       '</div><div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
