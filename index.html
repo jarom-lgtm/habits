@@ -180,6 +180,22 @@
   .note b { color: var(--text); font-weight: 600; }
   .warnbox { background: var(--warn-deep); border: 1px solid #5a4a1c; color: var(--warn); border-radius: 11px; padding: 11px 13px; font-size: 13px; line-height: 1.45; margin-bottom: 14px; }
 
+  .finalbar { display:block; width:100%; margin:14px 0 4px; padding:13px 14px; border:1px dashed var(--line);
+    background:transparent; color:var(--dim); border-radius:12px; font:inherit; font-size:13px; font-weight:600;
+    letter-spacing:.2px; cursor:pointer; }
+  .finalbar:active { background:var(--card-hi); }
+  .finalbar.arm { border-style:solid; border-color:#c2483d; color:#e2685a; }
+  .finaldone { margin:14px 0 4px; padding:12px 14px; border-radius:12px; background:var(--card);
+    color:var(--dim); font-size:12px; text-align:center; letter-spacing:.2px; }
+  /* point and minute log */
+  .lgday { margin:0 0 14px; }
+  .lgd { font-size:11px; color:var(--dim); letter-spacing:.4px; text-transform:uppercase; margin:0 0 5px; }
+  .lgrow { display:flex; align-items:baseline; gap:9px; padding:5px 0; border-top:1px solid var(--line); font-size:13px; }
+  .lga { flex:0 0 52px; font-weight:650; font-size:11px; letter-spacing:.2px; }
+  .lgw { flex:1 1 auto; color:var(--dim); font-size:12px; }
+  .lgv { flex:0 0 auto; font-weight:650; font-variant-numeric:tabular-nums; }
+  .lgv.up { color:#5aa06a; }
+  .lgv.dn { color:#c9705f; }
   /* streak history */
   .srow {
     display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
@@ -251,6 +267,7 @@
     <div class="grab"></div>
     <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
+    <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point and minute log<small>Every movement, earned and used, one timeline</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
   </div>
@@ -268,7 +285,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v31';
+  var APP_VERSION = 'v32';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -386,7 +403,7 @@
     RAK: '2026-08-30', JUST8: '2026-08-30', STOP: '2026-08-30', FIT: '2026-08-30'
   };
 
-  var state = { starts: {}, days: {} };
+  var state = { starts: {}, days: {}, finals: {}, startsLocked: {} };
   // Cached results of the J and S walks; cleared on every write.
   // Cached result of the JUST8 pass; cleared on every write.
   var _j8 = null, _stop = null;
@@ -398,11 +415,15 @@
         var p = JSON.parse(raw);
         state.starts = p.starts || {};
         state.days   = p.days   || {};
+        state.finals = p.finals || {};
+        state.startsLocked = p.startsLocked || {};
         state.demo   = !!p.demo;
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
         state.demoSeed = p.demoSeed;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
+    if (!state.finals) state.finals = {};
+    if (!state.startsLocked) state.startsLocked = {};
     HABITS.forEach(function (h) {
       if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
     });
@@ -535,6 +556,14 @@
     return Math.ceil(c * 4) / 4;
   }
 
+  /* The FIT cover is paid out of the same 8ANK as the cups and the hours, so a
+     day's cost is one number, not two. The balance always charged both; it was
+     only the line on the JUST8 sheet that left FIT out, which made a correct
+     balance look like an arithmetic error. Both now read from here. */
+  function fitPtsOn(dk) { var f = get(dk, 'FIT'); return (f && f.mPts) ? f.mPts : 0; }
+  function dayPointCost(dk) { return j8DayCost(get(dk, 'JUST8')) + fitPtsOn(dk);
+  }
+
   /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
      the three can never drift apart.
 
@@ -578,7 +607,7 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {} };
+    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {}, log: {} };
     var start = parse(state.starts.JUST8);
     var n = daysBetween(start, today);
     if (n < 0) { _j8 = res; return res; }
@@ -592,13 +621,14 @@
       /* A point lands each day as the day arrives - never eight in a lump at
          the head of the week - and Sunday carries a second one for Zunday. */
       bank += 1;
-      if (d.getDay() === 0) bank += 1;
+      mv(res, dk, '8ANK', 1, 'daily');
+      if (d.getDay() === 0) { bank += 1; mv(res, dk, '8ANK', 1, 'Zunday'); }
 
       /* The weekly 3 lands on Sunday. This used to fire every seventh day
          counted from the start date, which only coincides with Sunday when the
          habit happens to have begun on one, and drifts off it entirely if a
          start date is ever edited. */
-      if (d.getDay() === 0) th += 3;
+      if (d.getDay() === 0) { th += 3; mv(res, dk, 'TH8NK', 3, 'weekly 3'); }
 
       /* Only a Travel or Holiday day opens the TH8NK, and holidays are capped
          per calendar year - the ninth one of a year simply does not count. */
@@ -613,14 +643,15 @@
       /* On a TH8NK day the day's spending comes out of the TH8NK, which is the
          whole point of marking one - a reserve that is not actually drawn on
          while travelling is just a number sitting in a corner. */
-      var f = get(dk, 'FIT');
-      var spend = (e ? j8DayCost(e) : 0) + ((f && f.mPts) ? f.mPts : 0);
+      var jCost = j8DayCost(e), fCost = fitPtsOn(dk), spend = jCost + fCost;
       if (open) th -= spend; else bank -= spend;
+      if (jCost) mv(res, dk, open ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
+      if (fCost) mv(res, dk, open ? 'TH8NK' : '8ANK', -fCost, 'FIT cover');
 
       /* A day where every one of the eight came up green earns a point. Only
          entries are read here, never the derived misses - a bonus that fed
          back into the balance it was computed from could not settle. */
-      if (perfectDay(dk)) bank += 1;
+      if (perfectDay(dk)) { bank += 1; mv(res, dk, '8ANK', 1, 'perfect day'); }
 
       /* Transfers are applied exactly as they were made. They used to be
          re-clamped here by whatever the balance happened to be at this point,
@@ -631,11 +662,15 @@
       if (e && e.thankDep) {                      // 3 out of the 8ANK, 4 into the TH8NK
         bank -= e.thankDep;
         th   += (e.thankDep / 3) * 4;
+        mv(res, dk, '8ANK',  -e.thankDep, 'moved to TH8NK');
+        mv(res, dk, 'TH8NK', (e.thankDep / 3) * 4, 'from the 8ANK');
       }
       // Pulls no longer need a TH8NK day; the day only counts holidays now.
       if (e && e.thankPull) {                     // a deliberate pull, that day
         th   -= e.thankPull;
         bank += e.thankPull / 3;
+        mv(res, dk, 'TH8NK', -e.thankPull, 'moved to the 8ANK');
+        mv(res, dk, '8ANK',  e.thankPull / 3, 'from the TH8NK');
       }
 
       /* Nothing is pulled automatically any more. Spending the reserve is a
@@ -689,23 +724,49 @@
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
   var TANK_UNLOCK_DAYS = 30;
 
+  /* Two missed days back to back empty the Tank. The Bank already writes its
+     debt off at a miss, which makes a single bad night survivable on purpose -
+     the Tank is the thing with real weight behind it, and two in a row is the
+     point at which it should cost something that is felt. One miss does not
+     touch it. */
+  var TANK_WIPE_MISSES = 2;
+
+  /* One movement of one balance, on one day, with the reason it happened.
+     The log is written by the same two walks that produce the balances, so it
+     cannot drift away from them - a ledger computed separately would be a
+     second opinion, and the point of a ledger is that there is only one. */
+  function mv(res, dk, acct, amt, why) {
+    if (!amt) return;
+    (res.log[dk] || (res.log[dk] = [])).push({ acct: acct, amt: amt, why: why });
+  }
+
   // Where the sample history begins. Bumping this reseeds an existing sandbox.
   var DEMO_START = '2026-06-01';
 
   function stop() {
     if (_stop) return _stop;
-    var res = { bank: 0, tank: 0, cleanRun: 0, misses: {} };
+    var res = { bank: 0, tank: 0, cleanRun: 0, misses: {}, log: {} };
     var start = parse(state.starts.STOP);
     var n = daysBetween(start, today);
     if (n < 0) { _stop = res; return res; }
 
-    var bank = 0, tank = 0, clean = 0, d = start;
+    var bank = 0, tank = 0, clean = 0, d = start, runMiss = 0;
     for (var i = 0; i <= n; i++) {
       var dk = key(d), e = get(dk, 'STOP');
 
-      if (e && e.slip) { bank -= (e.min || 0); clean = 0; } else { bank += 1; clean++; }
-      if (e && e.toTank)   { bank -= e.toTank;   tank += e.toTank; }   // one for one
-      if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank; }
+      if (e && e.slip) {
+        bank -= (e.min || 0); clean = 0;
+        mv(res, dk, 'Bank', -(e.min || 0), 'slip');
+      } else {
+        bank += 1; clean++;
+        mv(res, dk, 'Bank', 1, 'clean day');
+      }
+      if (e && e.toTank)   { bank -= e.toTank;   tank += e.toTank;      // one for one
+                             mv(res, dk, 'Bank', -e.toTank, 'moved to the Tank');
+                             mv(res, dk, 'Tank', e.toTank, 'from the Bank'); }
+      if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank;
+                             mv(res, dk, 'Tank', -e.fromTank, 'moved to the Bank');
+                             mv(res, dk, 'Bank', e.fromTank, 'from the Tank'); }
 
       var miss = bank < 0;
       res.misses[dk] = miss;
@@ -714,7 +775,21 @@
          next day opens at zero. Carrying a negative forward charged the same
          slip again every morning until it had been earned back, which turned
          one bad night into a fortnight of failures. */
-      if (miss) bank = 0;
+      if (miss) {
+        mv(res, dk, 'Bank', -bank, 'debt written off with the miss');
+        bank = 0;
+      }
+
+      /* The wipe is charged on the second consecutive miss and not again -
+         a Tank already emptied has nothing left to take, and a third bad day
+         should not read in the log as a second penalty. */
+      if (miss) {
+        runMiss++;
+        if (runMiss === TANK_WIPE_MISSES && tank > 0) {
+          mv(res, dk, 'Tank', -tank, TANK_WIPE_MISSES + ' misses in a row - Tank wiped');
+          tank = 0;
+        }
+      } else runMiss = 0;
 
       d = addDays(d, 1);
     }
@@ -769,6 +844,39 @@
       case 'WERKOUTS': return e.done ? 'ok' : '';   // anything short of a full one is a miss, not amber
       default:         return e.done ? 'ok' : '';
     }
+  }
+
+  /* ---------------- finalising a day ----------------
+     A finalised day is closed for good. The button is deliberately not
+     automatic: filling the last habit in should not silently end the day,
+     because the commonest reason to fill one in late is that something is
+     being corrected. Locking is an act, and it takes two taps. */
+  function dayFinal(dk) { return !!(state.finals && state.finals[dk]); }
+
+  /* Every habit that had begun by that day has to carry a state - kept, amber
+     or missed. A blank is not a filled-in day, and locking one would freeze
+     the blank rather than the record. */
+  function dayComplete(dk) {
+    for (var i = 0; i < HABITS.length; i++) {
+      var id = HABITS[i].id;
+      if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) continue;   // not begun
+      var st = cardState(dk, id);
+      if (st !== 'ok' && st !== 'warn' && st !== 'miss') return false;
+    }
+    return true;
+  }
+
+  var _armFinal = null, _armT = null;
+  function armFinal(dk) {
+    if (_armFinal === dk) {                       // the second tap is the decision
+      clearTimeout(_armT); _armFinal = null;
+      state.finals[dk] = true; save(); render();
+      toast('Day finalized - it can no longer be changed');
+      return;
+    }
+    _armFinal = dk; render();
+    clearTimeout(_armT);
+    _armT = setTimeout(function () { _armFinal = null; render(); }, 5000);
   }
 
   /* The card carries the name and the streak, and otherwise stays quiet.
@@ -841,11 +949,28 @@
       el.addEventListener('click', function () { openSheet(dk, h.id); });
       listEl.appendChild(el);
     });
+
+    if (dayFinal(dk)) {
+      var fd = document.createElement('div');
+      fd.className = 'finaldone';
+      fd.innerHTML = '&#128274; This day is finalized &mdash; locked';
+      listEl.appendChild(fd);
+    } else if (viewing < today && dayComplete(dk)) {
+      var armed = (_armFinal === dk);
+      var fb = document.createElement('button');
+      fb.className = 'finalbar' + (armed ? ' arm' : '');
+      fb.textContent = armed
+        ? 'Tap again to lock ' + viewing.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' — this cannot be undone'
+        : 'Finalize day?';
+      fb.addEventListener('click', function () { armFinal(dk); });
+      listEl.appendChild(fb);
+    }
   }
 
   /* The tick is the one-tap path for the simple cases; anything that needs a
      number or a name opens its sheet instead of guessing. */
   function quickTap(dk, h) {
+    if (dayFinal(dk)) { toast('That day is finalized'); return; }
     if (daysBetween(parse(state.starts[h.id]), parse(dk)) < 0) { toast(h.id + ' has not started yet'); return; }
     /* W, J and F cannot be ticked from the list. Each of them is only true once
        something specific has been entered - the minutes and which kinds, the
@@ -857,13 +982,24 @@
       return;
     }
 
-    if (h.id === 'BED' || h.id === 'RAK' || h.id === 'NOTE') {
-      var e = entry(dk, h.id, true);
-      e.done = !e.done;
-      if (!e.done) e.miss = false;
+    if (h.id === 'BED') {
+      var b = entry(dk, h.id, true);
+      b.done = !b.done;
+      if (!b.done) b.miss = false;
       prune(dk, h.id); save(); render();
-      if (h.id === 'RAK' && e.done && !e.note) openSheet(dk, 'RAK');
-      if (h.id === 'NOTE' && e.done && !e.who) openSheet(dk, 'NOTE');
+      return;
+    }
+
+    /* R and N are only true once something has been written down - the act, or
+       the person. The tick used to set done FIRST and open the sheet after, so
+       dismissing the sheet left the day ticked with nothing behind it. The tick
+       now only opens. Unticking still works from the list: taking a claim back
+       needs nothing behind it. */
+    if (h.id === 'RAK' || h.id === 'NOTE') {
+      var r = entry(dk, h.id, true);
+      if (r.done) { r.done = false; r.miss = false; prune(dk, h.id); save(); render(); return; }
+      prune(dk, h.id);
+      openSheet(dk, h.id);
       return;
     }
 
@@ -1098,7 +1234,10 @@
            A reserve you cannot touch is not information, it is temptation. */
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
           (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b>' : '') +
-          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e)) + ' pt</b></div>' +
+          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(dayPointCost(dk)) + ' pt</b>' +
+          (fitPtsOn(dk)
+            ? '<span style="opacity:.65"> (' + fmt(j8DayCost(e)) + ' here + ' + fmt(fitPtsOn(dk)) + ' covering FIT)</span>'
+            : '') + '</div>' +
         (bank8() < 0
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
             'cover it from the TH8NK on a TH8NK day, or the day is a miss.</div>'
@@ -1159,6 +1298,12 @@
     }
 
     sheetEl.innerHTML = html;
+    if (dayFinal(dk)) {
+      var lk = document.createElement('div');
+      lk.className = 'warnbox';
+      lk.innerHTML = 'This day is <b>finalized</b>. It can be read, not changed.';
+      sheetEl.insertBefore(lk, sheetEl.children[3] || null);
+    }
     wireSheet(dk, id);
     openOv('ovSheet');
   }
@@ -1170,8 +1315,10 @@
 
   function wireSheet(dk, id) {
     var e = entry(dk, id, true);
+    var locked = dayFinal(dk);
 
     function commit(reopen) {
+      if (locked) { toast('That day is finalized'); return; }
       // Free-text fields are read back before anything is written away.
       var f = document.getElementById('fText');
       if (f) {
@@ -1193,6 +1340,7 @@
     var pick = document.getElementById('rakPick');
     if (pick) {
       pick.addEventListener('change', function () {
+        if (locked) { toast('That day is finalized'); openSheet(dk, id); return; }
         if (this.value === '__other') {
           e.rakOther = true;              // reveal the box, keep whatever is typed
           e.done = !!(e.note && e.note.trim());   // not done until something is typed
@@ -1210,6 +1358,7 @@
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-act]'), function (b) {
       b.addEventListener('click', function () {
         var a = b.getAttribute('data-act');
+        if (locked && a !== 'close') { toast('That day is finalized'); return; }
 
         if (a === 'close') {
           /* Done on H means the day held. It already reads as a hit on
@@ -1420,14 +1569,18 @@
     if (days['2026-08-25']) { days['2026-08-25'].FIT = { logged: true, items: { M: 'u', F: 'U' }, miss: true }; }
 
     // The R shortlist is a preference, not data - it survives a reseed.
-    state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START, rakList: state.rakList };
+    /* A reseed clears the finalised days and the fixed start dates with it -
+       the sandbox is for practising both, and a practice day locked forever
+       would only be in the way. */
+    state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START,
+              rakList: state.rakList, finals: {}, startsLocked: {} };
     _j8 = null; _stop = null;
     save(); render();
     toast('Sample data loaded');
   }
 
   function wipeAll() {
-    state = { starts: {}, days: {}, rakList: state.rakList };   // shortlist survives a wipe
+    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, rakList: state.rakList };   // shortlist survives a wipe
     HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
     _j8 = null; _stop = null;
     save(); render();
@@ -1498,25 +1651,126 @@
     closeOv('ovMenu'); _segs = {}; openStreaks();
   });
 
-  document.getElementById('mStarts').addEventListener('click', function () {
-    closeOv('ovMenu');
-    sheetEl.innerHTML = head("Original start dates", "When each one first began") +
+  /* A start date is what every streak is measured from, so once it is confirmed
+     it stops being editable. Left open, a bad week could always be answered by
+     quietly moving the beginning - which would make the streak a number that
+     agrees with him rather than a record of what happened. Confirming is per
+     habit and takes two taps; nothing is locked by simply saving. */
+  function startLocked(id) { return !!(state.startsLocked && state.startsLocked[id]); }
+
+  var _armStart = null, _armStartAt = 0;
+
+  function openStarts() {
+    sheetEl.innerHTML = head('Original start dates', 'Confirm one and it is fixed for good') +
       HABITS.map(function (h) {
+        if (startLocked(h.id)) {
+          return '<div class="field"><label>' + h.id + '</label>' +
+            '<div class="note" style="margin:0">' + shortDate(state.starts[h.id]) +
+            ' &nbsp;&middot;&nbsp; &#128274; confirmed &mdash; this cannot be changed</div></div>';
+        }
+        var armed = (_armStart === h.id);
         return '<div class="field"><label>' + h.id + '</label>' +
-          '<input type="text" data-start="' + h.id + '" value="' + state.starts[h.id] + '" placeholder="YYYY-MM-DD" autocomplete="off"></div>';
+          '<input type="text" data-start="' + h.id + '" value="' + state.starts[h.id] + '" placeholder="YYYY-MM-DD" autocomplete="off">' +
+          '<button class="btn ' + (armed ? 'danger' : 'ghost') + '" data-lock="' + h.id + '" style="width:100%;margin-top:6px">' +
+            (armed ? 'Tap again to fix this date for good' : 'Confirm this date') + '</button></div>';
       }).join('') +
-      '<div class="btns"><button class="btn go" data-act="savestarts">Save</button></div>';
-    sheetEl.querySelector('[data-act="savestarts"]').addEventListener('click', function () {
+      '<div class="note">A confirmed date is the one the streak counts from. Fixing it means the history cannot be moved under the numbers later.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
+      '<button class="btn go" data-act="savestarts">Save</button></div>';
+
+    // Unlocked fields are read back before any lock, so what gets fixed is
+    // what is on the screen rather than what was last saved.
+    function readStarts() {
       var bad = null;
       Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-start]'), function (i) {
         var v = i.value.trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(parse(v).getTime())) { bad = i.getAttribute('data-start'); return; }
         state.starts[i.getAttribute('data-start')] = v;
       });
+      return bad;
+    }
+
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
+      _armStart = null; closeOv('ovSheet');
+    });
+    sheetEl.querySelector('[data-act="savestarts"]').addEventListener('click', function () {
+      var bad = readStarts();
       if (bad) { toast('Check ' + bad + ' - use YYYY-MM-DD'); return; }
-      save(); render(); closeOv('ovSheet'); toast('Saved');
+      _armStart = null; save(); render(); closeOv('ovSheet'); toast('Saved');
+    });
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-lock]'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-lock');
+        var bad = readStarts();
+        if (bad) { toast('Check ' + bad + ' - use YYYY-MM-DD'); return; }
+        var fresh = (_armStart === id) && (Date.now() - _armStartAt < 8000);
+        if (fresh) {
+          _armStart = null;
+          state.startsLocked[id] = true;
+          save(); render(); openStarts();
+          toast(id + ' fixed at ' + shortDate(state.starts[id]));
+          return;
+        }
+        _armStart = id; _armStartAt = Date.now();
+        openStarts();
+      });
     });
     openOv('ovSheet');
+  }
+
+  document.getElementById('mStarts').addEventListener('click', function () {
+    closeOv('ovMenu'); _armStart = null; openStarts();
+  });
+
+  /* ---------------- point and minute log ----------------
+     Built from the two walks that produce the balances themselves, so the
+     ledger and the totals cannot disagree. Nothing here is stored: it is the
+     same arithmetic, shown a line at a time instead of as a closing number. */
+  var LOG_ACCTS = ['8ANK', 'TH8NK', 'Bank', 'Tank'];
+
+  function openLog() {
+    var days = {};
+    function add(src) {
+      Object.keys(src).forEach(function (dk) {
+        (days[dk] || (days[dk] = [])).push.apply(days[dk], src[dk]);
+      });
+    }
+    add(j8().log); add(stop().log);
+
+    var keys = Object.keys(days).sort().reverse().filter(function (dk) { return days[dk].length; });
+    var shown = keys.slice(0, 200);
+
+    var body = shown.map(function (dk) {
+      var rows = days[dk].slice().sort(function (a, b) {
+        return LOG_ACCTS.indexOf(a.acct) - LOG_ACCTS.indexOf(b.acct);
+      });
+      return '<div class="lgday"><div class="lgd">' +
+        parse(dk).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) +
+        (dayFinal(dk) ? ' &#128274;' : '') + '</div>' +
+        rows.map(function (r) {
+          var unit = (r.acct === 'Bank' || r.acct === 'Tank') ? ' min' : ' pt';
+          return '<div class="lgrow"><span class="lga">' + r.acct + '</span>' +
+            '<span class="lgw">' + r.why + '</span>' +
+            '<span class="lgv ' + (r.amt > 0 ? 'up' : 'dn') + '">' +
+              (r.amt > 0 ? '+' : '−') + fmt(Math.abs(r.amt)) + unit + '</span></div>';
+        }).join('') +
+      '</div>';
+    }).join('');
+
+    sheetEl.innerHTML = head('Point and minute log', 'Everything earned, used and moved') +
+      '<div class="note">Now &mdash; 8ANK <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK <b>' + fmt(thank()) +
+        '</b> &nbsp;&middot;&nbsp; Bank <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank <b>' + fmt(stopTank()) + ' min</b></div>' +
+      (body || '<div class="note">Nothing has moved yet.</div>') +
+      (keys.length > shown.length
+        ? '<div class="note">Showing the most recent ' + shown.length + ' days with movement, of ' + keys.length + '.</div>'
+        : '') +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    openOv('ovSheet');
+  }
+
+  document.getElementById('mLog').addEventListener('click', function () {
+    closeOv('ovMenu'); openLog();
   });
 
   document.getElementById('mAbout').addEventListener('click', function () {
