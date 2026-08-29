@@ -240,13 +240,9 @@
   .lgtog .lgd { flex:1 1 auto; margin:0; }
   .lgcount { flex:0 0 auto; font-size:11px; color:var(--dimmer); }
   .lgchev { flex:0 0 auto; font-size:10px; color:var(--dim); display:inline-block; transition:transform .15s; }
-  .lgtog.open .lgchev, .lgntog.open .lgchev { transform:rotate(180deg); }
+  .lgtog.open .lgchev { transform:rotate(180deg); }
   .lgbody { padding:0 0 10px; }
-  .lgntog {
-    display:flex; align-items:center; gap:6px; width:100%; padding:7px 2px;
-    border:0; background:none; font-family:inherit; font-size:12px; color:var(--dim); text-align:left;
-  }
-  .lgntog span.lgnl { flex:1 1 auto; }
+  .lgdnl { font-size:11px; color:var(--dim); letter-spacing:.4px; text-transform:uppercase; padding:7px 2px 3px; }
   .lgntext { font-size:12.5px; color:var(--text); line-height:1.5; padding:0 2px 8px; white-space:pre-wrap; }
   .lgrow { display:flex; align-items:baseline; gap:9px; padding:5px 0; border-top:1px solid var(--line); font-size:13px; }
   .lga { flex:0 0 52px; font-weight:650; font-size:11px; letter-spacing:.2px; }
@@ -396,7 +392,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v38';
+  var APP_VERSION = 'v39';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -480,28 +476,12 @@
      but not worth tracking, so the stepper opens at a full one and is walked
      DOWN for a partial rather than up from zero. The overwhelming majority of
      days need no adjustment at all. */
-  /* R's shortlist. Only the acts actually named are seeded - guessing at
-     what someone does for others is presumptuous - and anything typed as
-     Other joins the list, so it fits the real pattern within a week or two. */
-  var RAK_SEED = [
-    'Held the door',
-    'Picked up trash'
-  ];
-  var RAK_MAX = 12;
-
-  function rakList() {
-    if (!state.rakList || !state.rakList.length) state.rakList = RAK_SEED.slice();
-    return state.rakList;
-  }
-  function rakRemember(text) {
-    var t = (text || '').trim();
-    if (!t) return;
-    var list = rakList();
-    var i = list.indexOf(t);
-    if (i !== -1) list.splice(i, 1);
-    list.unshift(t);                       // most recently used floats up
-    if (list.length > RAK_MAX) list.length = RAK_MAX;
-  }
+  /* Two answers on R, and no third. A list that learned every act typed into
+     it became a menu to read rather than a choice to make, and the reading cost
+     more than it saved: one act actually repeats, and everything else is
+     different every time and belongs in its own words. Anything recorded under
+     the old learned list still opens as Other with its text intact. */
+  var RAK_COMMON = 'Picked up trash';
 
   var WERK_FULL = 31;
   function werkMin(e) { return (e && typeof e.min === 'number') ? e.min : WERK_FULL; }
@@ -1130,33 +1110,38 @@
       fd.className = 'finaldone';
       fd.innerHTML = '&#128274; This day is finalized &mdash; locked';
       listEl.appendChild(fd);
-    } else if (viewing < today && dayComplete(dk)) {
-      var written = hasDayNote(dk);
+    } else {
+      var written    = hasDayNote(dk);
+      var canFinalize = (viewing < today && dayComplete(dk));
 
-      /* The note comes before the lock on purpose. A day closed with no word
-         about it is a row of ticks and nothing else; by the time it matters,
-         what actually happened is gone. */
+      /* The note sits on every open day, not only a finished one. A day is
+         written about while it is happening - the reason the evening went the
+         way it did is known at six and gone by the time the last box is
+         ticked. It only becomes a requirement at the point of closing. */
       var nb = document.createElement('button');
-      nb.className = 'notebar' + (written ? '' : ' need');
-      nb.innerHTML = 'Notes about the day' +
-        (written ? '<small>Written &mdash; tap to read or change it</small>'
-                 : '<small>Required before this day can be finalized</small>');
+      nb.className = 'notebar' + (!written && canFinalize ? ' need' : '');
+      nb.innerHTML = 'Notes about the day' + (written
+        ? '<small>Written &mdash; tap to read or add to it</small>'
+        : (canFinalize ? '<small>Required before this day can be finalized</small>'
+                       : '<small>Anything worth remembering &mdash; add to it as the day goes</small>'));
       nb.addEventListener('click', function () { openDayNote(dk); });
       listEl.appendChild(nb);
 
-      var armed = (_armFinal === dk);
-      var fb = document.createElement('button');
-      fb.className = 'finalbar' + (armed ? ' arm' : '');
-      if (!written) {
-        fb.disabled = true;
-        fb.textContent = 'Write the day\'s note first';
-      } else {
-        fb.textContent = armed
-          ? 'Tap again to lock ' + viewing.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' — this cannot be undone'
-          : 'Finalize day?';
-        fb.addEventListener('click', function () { armFinal(dk); });
+      if (canFinalize) {
+        var armed = (_armFinal === dk);
+        var fb = document.createElement('button');
+        fb.className = 'finalbar' + (armed ? ' arm' : '');
+        if (!written) {
+          fb.disabled = true;
+          fb.textContent = 'Write the day\'s note first';
+        } else {
+          fb.textContent = armed
+            ? 'Tap again to lock ' + viewing.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' — this cannot be undone'
+            : 'Finalize day?';
+          fb.addEventListener('click', function () { armFinal(dk); });
+        }
+        listEl.appendChild(fb);
       }
-      listEl.appendChild(fb);
     }
   }
 
@@ -1311,27 +1296,14 @@
 
       var picker = '';
       if (isRak) {
-        var list = rakList();
-        var known = list.indexOf(val) !== -1 || RAK_SEED.indexOf(val) !== -1;
-        var opt = function (a) {
-          return '<option value="' + esc(a) + '"' + (mode === a ? ' selected' : '') + '>' + esc(a) + '</option>';
-        };
-        /* The value decides the selection, not the flag that opened the box.
-           Once something typed has joined the list it is a normal choice, so
-           it shows as picked rather than stranding the box open under it. */
-        var mode  = known ? val : ((val || e.rakOther) ? '__other' : '');
+        /* The value decides the selection, not the flag that opened the box. */
+        var mode = (val === RAK_COMMON) ? RAK_COMMON : ((val || e.rakOther) ? '__other' : '');
         picker =
           '<div class="field"><label>' + label + '</label>' +
             '<select id="rakPick">' +
               '<option value=""' + (mode === '' ? ' selected' : '') + '>Choose one&hellip;</option>' +
-              /* The three anchors keep their places whatever gets learned:
-                 Held the door, Other, Picked up trash - H O P. Without pinning
-                 them, a typed act floating to the top scrambled the order he
-                 remembers the list by. */
-              opt(RAK_SEED[0]) +
+              '<option value="' + esc(RAK_COMMON) + '"' + (mode === RAK_COMMON ? ' selected' : '') + '>' + esc(RAK_COMMON) + '</option>' +
               '<option value="__other"' + (mode === '__other' ? ' selected' : '') + '>Other&hellip;</option>' +
-              opt(RAK_SEED[1]) +
-              list.filter(function (a) { return RAK_SEED.indexOf(a) === -1; }).map(opt).join('') +
             '</select>' +
           '</div>' +
           (mode === '__other'
@@ -1642,7 +1614,6 @@
       if (f) {
         if (id === 'RAK') {
           e.note = f.value.trim();
-          rakRemember(e.note);
           /* An empty Other is not a day. Choosing "Other" and typing nothing
              would otherwise tick the day off while saying nothing at all,
              which is the one thing R exists to prevent. */
@@ -1668,7 +1639,7 @@
         }
         e.rakOther = false;
         e.note = this.value;
-        if (e.note) { e.done = true; rakRemember(e.note); }
+        if (e.note) { e.done = true; }
         prune(dk, id); save(); render(); openSheet(dk, id);
       });
     }
@@ -2103,9 +2074,8 @@
         '</button>' +
         '<div class="lgbody" data-lgbody="' + dk + '" hidden>' +
           (note.trim()
-            ? '<button class="lgntog" data-lgnote="' + dk + '">' +
-                '<span class="lgnl">Notes about the day</span><span class="lgchev">&#9660;</span></button>' +
-              '<div class="lgntext" data-lgntext="' + dk + '" hidden>' + escText(note) + '</div>'
+            ? '<div class="lgdnl">Notes about the day</div>' +
+              '<div class="lgntext">' + escText(note) + '</div>'
             : '') +
           rows.map(function (r) {
             var unit = (r.acct === 'Bank' || r.acct === 'Tank') ? ' min' : ' pt';
@@ -2130,19 +2100,12 @@
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-act="x"]'), function (b) {
       b.addEventListener('click', function () { closeOv('ovSheet'); });
     });
-    /* Each day opens on its own, and the note inside it opens on its own again,
-       so a long note never has to be scrolled past to reach the next day. */
+    /* One tap per day, and it opens everything that day holds - points,
+       minutes and the note together. A second fold inside the first made the
+       note a thing to go and find rather than part of the day it belongs to. */
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-lgday]'), function (b) {
       b.addEventListener('click', function () {
         var el = sheetEl.querySelector('[data-lgbody="' + b.getAttribute('data-lgday') + '"]');
-        if (!el) return;
-        el.hidden = !el.hidden;
-        b.classList.toggle('open', !el.hidden);
-      });
-    });
-    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-lgnote]'), function (b) {
-      b.addEventListener('click', function () {
-        var el = sheetEl.querySelector('[data-lgntext="' + b.getAttribute('data-lgnote') + '"]');
         if (!el) return;
         el.hidden = !el.hidden;
         b.classList.toggle('open', !el.hidden);
