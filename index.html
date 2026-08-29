@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v19';
+  var APP_VERSION = 'v20';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -376,9 +376,9 @@
   };
 
   var state = { starts: {}, days: {} };
-
+  // Cached results of the J and S walks; cleared on every write.
   // Cached result of the JUST8 pass; cleared on every write.
-  var _j8 = null;
+  var _j8 = null, _stop = null;
 
   function load() {
     try {
@@ -396,7 +396,7 @@
     });
   }
   function save() {
-    _j8 = null;                                  // any write can move the banks
+    _j8 = null; _stop = null;                    // any write can move the banks
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save - storage is blocked'); }
   }
@@ -630,40 +630,52 @@
   /* ---------------- STOP bank ----------------
      Every day without a slip banks a minute; a slip spends the minutes it
      cost.                                                                    */
-  function stopBank() {
+  /* One walk produces the bank and every miss together. This used to be two
+     near-identical loops, which is precisely the arrangement that lets a
+     balance and the misses drawn from it drift apart. */
+  function stop() {
+    if (_stop) return _stop;
+    var res = { bank: 0, misses: {} };
     var start = parse(state.starts.STOP);
     var n = daysBetween(start, today);
-    if (n < 0) return 0;
+    if (n < 0) { _stop = res; return res; }
+
     var bank = 0, d = start;
     for (var i = 0; i <= n; i++) {
-      var e = get(key(d), 'STOP');
+      var dk = key(d), e = get(dk, 'STOP');
+
       if (e && e.slip) bank -= (e.min || 0); else bank += 1;
       if (e && e.cashed) bank -= e.cashed;   // cashing out is one-way
+
+      var miss = bank < 0;
+      res.misses[dk] = miss;
+
+      /* The miss IS the penalty, so the debt is written off with it and the
+         next day opens at zero. Carrying a negative forward charged the same
+         slip again every morning until it had been earned back, which turned
+         one bad night into a fortnight of failures. */
+      if (miss) bank = 0;
+
       d = addDays(d, 1);
     }
-    return bank;
+    res.bank = Math.round(bank * 100) / 100;
+    _stop = res;
+    return res;
   }
 
-  /* Recompute which STOP days pushed the bank negative, so the streak breaks
-     on the day it actually happened rather than only showing up as a total. */
+  function stopBank() { return stop().bank; }
+
+  /* Write the computed misses onto the days they happened, so the streak
+     breaks on the right date rather than only showing as a total. */
   function refreshStopMisses() {
-    var start = parse(state.starts.STOP);
-    var n = daysBetween(start, today);
-    if (n < 0) return;
-    var bank = 0, d = start, changed = false;
-    for (var i = 0; i <= n; i++) {
-      var dk = key(d), e = get(dk, 'STOP');
-      if (e && e.slip) bank -= (e.min || 0); else bank += 1;
-      if (e && e.cashed) bank -= e.cashed;   // cashing out is one-way
-      var isMiss = bank < 0;
-      if (isMiss !== !!(e && e.miss)) {
-        var t = entry(dk, 'STOP', true);
-        t.miss = isMiss;
-        prune(dk, 'STOP');
-        changed = true;
-      }
-      d = addDays(d, 1);
-    }
+    var m = stop().misses, changed = false;
+    Object.keys(m).forEach(function (dk) {
+      var e = get(dk, 'STOP');
+      if (m[dk] === !!(e && e.miss)) return;
+      entry(dk, 'STOP', true).miss = m[dk];
+      prune(dk, 'STOP');
+      changed = true;
+    });
     if (changed) save();
   }
 
@@ -908,7 +920,8 @@
 
     else if (id === 'STOP') {
       html = head('STOP', when) +
-        '<div class="note">Bank right now: <b>' + fmt(stopBank()) + ' min</b>. A clean day adds one. The streak breaks only if the bank goes below zero.</div>' +
+        '<div class="note">Bank right now: <b>' + fmt(stopBank()) + ' min</b>. A clean day adds one. ' +
+          'Going below zero is the miss &mdash; the bank then starts again from zero, so it is not held against you twice.</div>' +
         '<div class="btns" style="margin-bottom:14px">' +
           '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Hit</button>' +
           '<button class="btn ' + (e.slip ? 'danger' : 'ghost') + '" data-act="slip">Miss</button>' +
@@ -1244,7 +1257,7 @@
 
     // The R shortlist is a preference, not data - it survives a reseed.
     state = { starts: starts, days: days, demo: true, rakList: state.rakList };
-    _j8 = null;
+    _j8 = null; _stop = null;
     save(); render();
     toast('Sample data loaded');
   }
@@ -1252,7 +1265,7 @@
   function wipeAll() {
     state = { starts: {}, days: {}, rakList: state.rakList };   // shortlist survives a wipe
     HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
-    _j8 = null;
+    _j8 = null; _stop = null;
     save(); render();
     toast('Wiped clean');
   }
