@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v25';
+  var APP_VERSION = 'v26';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -554,9 +554,16 @@
       var e = get(dk, 'JUST8');
       var yr = d.getFullYear();
 
+      /* A point lands each day as the day arrives - never eight in a lump at
+         the head of the week - and Sunday carries a second one for Zunday. */
       bank += 1;
-      if (d.getDay() === 0) bank += 1;            // Sunday carries Zunday's point
-      if (i % 7 === 0) th += 3;                   // the weekly TH8NK grant
+      if (d.getDay() === 0) bank += 1;
+
+      /* The weekly 3 lands on Sunday. This used to fire every seventh day
+         counted from the start date, which only coincides with Sunday when the
+         habit happens to have begun on one, and drifts off it entirely if a
+         start date is ever edited. */
+      if (d.getDay() === 0) th += 3;
 
       /* Only a Travel or Holiday day opens the TH8NK, and holidays are capped
          per calendar year - the ninth one of a year simply does not count. */
