@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v30';
+  var APP_VERSION = 'v31';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -400,6 +400,7 @@
         state.days   = p.days   || {};
         state.demo   = !!p.demo;
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
+        state.demoSeed = p.demoSeed;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     HABITS.forEach(function (h) {
@@ -687,6 +688,9 @@
      stands for the wait. Named Bank and Tank rather than reusing the 8ANK and
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
   var TANK_UNLOCK_DAYS = 30;
+
+  // Where the sample history begins. Bumping this reseeds an existing sandbox.
+  var DEMO_START = '2026-06-01';
 
   function stop() {
     if (_stop) return _stop;
@@ -1356,7 +1360,7 @@
     function rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
 
     var starts = {};
-    HABITS.forEach(function (h) { starts[h.id] = '2026-06-01'; });
+    HABITS.forEach(function (h) { starts[h.id] = DEMO_START; });
 
     var names = ['Mom', 'Dave', 'Sarah', 'Pastor Jim', 'Aunt Ruth', 'Kyle', 'Grandma'];
     var acts  = ['picked up trash on the walk', 'held the door at the store',
@@ -1366,7 +1370,7 @@
     /* Stops at yesterday. Today is left blank on purpose so the ticking is
        his to do - a day that arrives already complete gives nothing to mark,
        and marking it is half the point. */
-    var days = {}, d = parse('2026-06-01'), end = addDays(today, -1);
+    var days = {}, d = parse(DEMO_START), end = addDays(today, -1);
     while (daysBetween(d, end) >= 0) {
       var dk = key(d), day = {};
 
@@ -1416,7 +1420,7 @@
     if (days['2026-08-25']) { days['2026-08-25'].FIT = { logged: true, items: { M: 'u', F: 'U' }, miss: true }; }
 
     // The R shortlist is a preference, not data - it survives a reseed.
-    state = { starts: starts, days: days, demo: true, rakList: state.rakList };
+    state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START, rakList: state.rakList };
     _j8 = null; _stop = null;
     save(); render();
     toast('Sample data loaded');
@@ -1640,7 +1644,9 @@
   load();
 
   // The sandbox arrives already full - an empty practice app shows nothing.
-  if (SANDBOX && Object.keys(state.days).length === 0) loadDemo();
+  /* Reseed when the stored sample predates the current one, so a sandbox
+     visited before an update does not sit on stale data with no sign of it. */
+  if (SANDBOX && (Object.keys(state.days).length === 0 || state.demoSeed !== DEMO_START)) loadDemo();
   else render();
 
   if ('serviceWorker' in navigator) {
