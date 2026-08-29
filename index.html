@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v28';
+  var APP_VERSION = 'v29';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -324,6 +324,17 @@
 
   var WERK_FULL = 31;
   function werkMin(e) { return (e && typeof e.min === 'number') ? e.min : WERK_FULL; }
+
+  /* A full session or nothing. Twenty-five minutes is not most of a workout,
+     it is a missed one, so there is no partial state to sit in - the moment
+     the minutes drop below a full session the day is marked missed. It can
+     still be undone by hand like any other miss. */
+  function setWerk(e) {
+    var m = werkMin(e);
+    e.done   = (m >= WERK_FULL && !!(e.types && e.types.length));
+    e.miss   = (m < WERK_FULL);
+    e.logged = true;
+  }
 
   /* ---------------- FIT sizing ----------------
      Each behaviour is off, -u, -uu or -U. The day's whole allowance is two
@@ -751,7 +762,7 @@
       case 'STOP':     return e.slip ? 'warn' : (e.logged ? 'ok' : '');
       case 'FIT':      return (e.items && Object.keys(e.items).length) ? 'warn' : (e.logged ? 'ok' : '');
       case 'JUST8':    return (e.eatStart && e.eatEnd) ? 'ok' : (e.eatStart || e.cups || e.cupS ? 'warn' : '');
-      case 'WERKOUTS': return e.done ? 'ok' : (e.min ? 'warn' : '');
+      case 'WERKOUTS': return e.done ? 'ok' : '';   // anything short of a full one is a miss, not amber
       default:         return e.done ? 'ok' : '';
     }
   }
@@ -979,7 +990,7 @@
         '<div class="field"><label>Minutes &mdash; starts at a full ' + WERK_FULL + '</label>' +
           '<div class="stepper">' +
             '<button data-act="min-">&minus;</button>' +
-            '<div class="val" id="minVal">' + wm + (wm >= WERK_FULL ? '' : ' &mdash; partial') + '</div>' +
+            '<div class="val" id="minVal">' + wm + (wm >= WERK_FULL ? '' : ' &mdash; a miss') + '</div>' +
             '<button data-act="min+">+</button>' +
           '</div></div>' +
         '<div class="field"><label>Which ones</label><div class="chips">' +
@@ -1228,8 +1239,8 @@
         if (a === 'clean') { e.slip = false; e.min = 0; e.logged = true; commit(true); return; }
         if (a === 'slip')  { e.slip = true;  e.logged = true; commit(true); return; }
 
-        if (a === 'min-')  { e.min = Math.max(0, werkMin(e) - 5);          e.done = (e.min >= WERK_FULL); e.logged = true; commit(true); return; }
-        if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); e.done = (e.min >= WERK_FULL); e.logged = true; commit(true); return; }
+        if (a === 'min-')  { e.min = Math.max(0, werkMin(e) - 5);          setWerk(e); commit(true); return; }
+        if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); setWerk(e); commit(true); return; }
         if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
         if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
         if (a === 'mpts-') { e.mPts = Math.max(0, Math.round(((e.mPts || 0) - 0.25) * 100) / 100); commit(true); return; }
@@ -1312,8 +1323,7 @@
            already sitting at a full session unless they were stepped down, so
            there is nothing else to confirm. */
         e.min = werkMin(e);
-        e.done = (e.min >= WERK_FULL && e.types.length > 0);
-        e.logged = true;
+        setWerk(e);
         commit(true);
       });
     });
@@ -1367,7 +1377,7 @@
 
       var r = rnd();
       day.WERKOUTS = (r < 0.15)
-        ? { done: false, min: 21, types: ['S'] }
+        ? { done: false, miss: true, min: 21, types: ['S'], logged: true }
         : { done: true, min: 31, types: (rnd() < 0.5 ? ['W', 'K'] : ['R', 'O']) };
 
       day.STOP = { logged: true };
