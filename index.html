@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v27';
+  var APP_VERSION = 'v28';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -1163,7 +1163,11 @@
         if (id === 'RAK') {
           e.note = f.value.trim();
           rakRemember(e.note);
-          if (e.note) { e.rakOther = false; e.done = true; }   // it is a listed choice now
+          /* An empty Other is not a day. Choosing "Other" and typing nothing
+             would otherwise tick the day off while saying nothing at all,
+             which is the one thing R exists to prevent. */
+          if (e.note) { e.rakOther = false; e.done = true; }
+          else e.done = false;
         }
         else e.who = f.value.trim();
       }
@@ -1176,7 +1180,7 @@
       pick.addEventListener('change', function () {
         if (this.value === '__other') {
           e.rakOther = true;              // reveal the box, keep whatever is typed
-          e.done = true;
+          e.done = !!(e.note && e.note.trim());   // not done until something is typed
           prune(dk, id); save(); render(); openSheet(dk, id);
           setTimeout(function () { var t = document.getElementById('fText'); if (t) t.focus(); }, 90);
           return;
