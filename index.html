@@ -396,7 +396,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v37';
+  var APP_VERSION = 'v38';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -2352,8 +2352,18 @@
 
     o.push('');
     o.push('DAILY LOG');
-    Object.keys(state.days).sort().reverse().forEach(function (dk) {
-      var day = state.days[dk], bits = [];
+    /* The day's note goes next to that day's own line rather than into a
+       section of its own. Read months later, the note is only worth anything
+       beside what the day actually did - the ticks explain the note and the
+       note explains the ticks. A day carrying nothing but a note still gets a
+       line, because "wrote nothing down, logged nothing" and "logged nothing
+       but had something to say" are not the same day. */
+    var logKeys = Object.keys(state.days);
+    Object.keys(state.dayNotes || {}).forEach(function (dk) {
+      if (dayNote(dk).trim() && logKeys.indexOf(dk) === -1) logKeys.push(dk);
+    });
+    logKeys.sort().reverse().forEach(function (dk) {
+      var day = state.days[dk] || {}, bits = [];
       HABITS.forEach(function (h) {
         var e = day[h.id];
         if (!e) return;
@@ -2383,6 +2393,13 @@
         if (p.length) bits.push(h.id + ': ' + p.join(' '));
       });
       if (bits.length) o.push(dk + '  ' + bits.join('  |  '));
+      /* Newlines are folded to " / " so one day stays one block and the log
+         cannot be misread as two days when a note runs long. */
+      var dnote = dayNote(dk).trim();
+      if (dnote) {
+        if (!bits.length) o.push(dk);
+        o.push('    DAY NOTE  "' + dnote.replace(/\s*\n\s*/g, ' / ') + '"');
+      }
     });
     o.push('');
     o.push('--- BACKUP - paste this whole export into Restore from a backup ---');
