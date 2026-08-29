@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v24';
+  var APP_VERSION = 'v25';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -651,7 +651,6 @@
       var dk = key(d), e = get(dk, 'STOP');
 
       if (e && e.slip) { bank -= (e.min || 0); clean = 0; } else { bank += 1; clean++; }
-      if (e && e.cashed) bank -= e.cashed;   // cashing out is one-way
       if (e && e.toTank)   { bank -= e.toTank;   tank += e.toTank; }   // one for one
       if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank; }
 
@@ -947,7 +946,11 @@
 
     else if (id === 'STOP') {
       html = head('STOP', when) +
-        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmt(stopTank()) + ' min</b></div>' +
+        /* Clean days are counted separately from the streak and cannot touch
+           it. A slip the Bank absorbs resets this to zero while the streak
+           carries on untouched - only a Bank below zero breaks that. */
+        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmt(stopTank()) + ' min</b>' +
+          ' &nbsp;&middot;&nbsp; <b>' + stop().cleanRun + '</b> clean day' + (stop().cleanRun === 1 ? '' : 's') + '</div>' +
         // A slip is not a miss - the bank absorbs it. Calling it one was wrong.
         '<div class="btns" style="margin-bottom:14px">' +
           '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Good</button>' +
@@ -961,10 +964,12 @@
           '</div></div>' : '') +
         /* One-way. Minutes leave the bank and do not come back, so this is a
            deliberate button rather than a stepper that can drift up and down. */
-        '<div class="field"><label>Bank and Tank &mdash; one for one' +
+        /* The threshold is named, not just the gap to it. "21 more clean days"
+           on its own never said what it was counting towards. */
+        '<div class="field"><label>Bank and Tank &mdash; one for one &middot; ' +
           (tankOpen()
-            ? ' &middot; Tank open'
-            : ' &middot; Tank locked, ' + (TANK_UNLOCK_DAYS - stop().cleanRun) + ' more clean days') + '</label>' +
+            ? 'Tank open'
+            : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days') + '</label>' +
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">Bank &rarr; Tank</div>' +
@@ -975,10 +980,6 @@
               '<button class="btn ghost" data-act="fromtank" style="width:100%">Take 1 out</button>' +
             '</div>' +
           '</div>' +
-        '</div>' +
-        '<div class="field"><label>Cash out &mdash; a minute is $5' +
-          (e.cashed ? ' &middot; ' + e.cashed + ' out today, $' + (e.cashed * 5) : '') + '</label>' +
-          '<div class="btns"><button class="btn ghost" data-act="cash1">Cash 1 min &rarr; $5</button></div>' +
         '</div>' +
         '<div class="btns">' + doneBtn() + '</div>';
     }
@@ -1206,17 +1207,12 @@
         }
         if (a === 'fromtank') {
           if (!tankOpen()) {
-            toast((TANK_UNLOCK_DAYS - stop().cleanRun) + ' more clean days to open the Tank');
+            toast('Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
             return;
           }
           if (stopTank() < 1) { toast('Nothing in the Tank'); return; }
           e.fromTank = (e.fromTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
-        }
-        if (a === 'cash1') {
-          if (stopBank() < 1) { toast('Nothing in the bank to cash'); return; }
-          e.cashed = (e.cashed || 0) + 1;
-          e.logged = true; commit(true); toast('Cashed 1 min - $5'); return;
         }
         if (a === 'eatstart') {
           // One-way. The window opened when it opened; letting it be unclicked
