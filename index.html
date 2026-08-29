@@ -268,7 +268,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v26';
+  var APP_VERSION = 'v27';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -541,6 +541,29 @@
      day there is nothing to fall back on, and going below zero is a miss.     */
   var HOLIDAYS_PER_YEAR = 8;
 
+  /* A perfect day: all eight green, nothing amber, nothing missed.
+     Read straight off the entries rather than off cardState, because the JUST8
+     card's state depends on the bank and the bonus is paid INTO the bank -
+     asking the balance whether it had earned a bonus would never settle. */
+  function perfectDay(dk) {
+    var day = state.days[dk];
+    if (!day) return false;
+    for (var i = 0; i < HABITS.length; i++) {
+      var id = HABITS[i].id, e = day[id];
+      if (!e || e.miss) return false;
+      if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) return false;   // not begun
+      switch (id) {
+        case 'H2Only':   if (!e.logged || e.broke) return false; break;
+        case 'STOP':     if (!e.logged || e.slip)  return false; break;
+        case 'JUST8':    if (!e.eatStart || !e.eatEnd) return false; break;
+        case 'WERKOUTS': if (!e.done) return false; break;
+        case 'FIT':      if (!e.logged || (e.items && Object.keys(e.items).length)) return false; break;
+        default:         if (!e.done) return false; break;   // BED, RAK, NOTE
+      }
+    }
+    return true;
+  }
+
   function j8() {
     if (_j8) return _j8;
     var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {} };
@@ -575,9 +598,17 @@
       }
       res.open[dk] = open;   // a capped holiday is marked but still shut
 
-      if (e) bank -= j8DayCost(e);
+      /* On a TH8NK day the day's spending comes out of the TH8NK, which is the
+         whole point of marking one - a reserve that is not actually drawn on
+         while travelling is just a number sitting in a corner. */
       var f = get(dk, 'FIT');
-      if (f && f.mPts) bank -= f.mPts;            // M covered from the 8ANK
+      var spend = (e ? j8DayCost(e) : 0) + ((f && f.mPts) ? f.mPts : 0);
+      if (open) th -= spend; else bank -= spend;
+
+      /* A day where every one of the eight came up green earns a point. Only
+         entries are read here, never the derived misses - a bonus that fed
+         back into the balance it was computed from could not settle. */
+      if (perfectDay(dk)) bank += 1;
 
       /* Transfers are applied exactly as they were made. They used to be
          re-clamped here by whatever the balance happened to be at this point,
@@ -869,6 +900,9 @@
     var html = '';
 
     if (id === 'BED') {
+      /* Opening it assumes it was made - that is the overwhelmingly likely
+         answer on a habit held for eight years, and it can be unticked. */
+      if (!e.miss && !e.done && !e.logged) { e.done = true; e.logged = true; save(); }
       html = head('BED', when) +
         '<div class="btns" style="margin-bottom:10px">' +
           '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Made &#10003;' : 'Made') + '</button>' +
@@ -926,9 +960,14 @@
       }
 
       html = head(id, when) +
-        '<div class="btns" style="margin-bottom:14px">' +
-          '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Done &#10003;' : 'Mark done') + '</button>' +
-        '</div>' +
+        /* R has no Mark done at all - choosing the act is what marks it, so
+           there is no way to claim the day without saying what was done.
+           N keeps its button, because the details are often written ahead of
+           the note being sent - but it will not fire on an empty field. */
+        (isRak ? '' :
+          '<div class="btns" style="margin-bottom:14px">' +
+            '<button class="btn ' + (e.done ? 'go' : 'ghost') + '" data-act="done">' + (e.done ? 'Done &#10003;' : 'Mark done') + '</button>' +
+          '</div>') +
         picker +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
@@ -973,7 +1012,7 @@
            deliberate button rather than a stepper that can drift up and down. */
         /* The threshold is named, not just the gap to it. "21 more clean days"
            on its own never said what it was counting towards. */
-        '<div class="field"><label>Bank and Tank &mdash; one for one &middot; ' +
+        '<div class="field"><label>' +
           (tankOpen()
             ? 'Tank open'
             : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days') + '</label>' +
@@ -1153,7 +1192,12 @@
       b.addEventListener('click', function () {
         var a = b.getAttribute('data-act');
 
-        if (a === 'close') { commit(false); closeOv('ovSheet'); return; }
+        if (a === 'close') {
+          /* Done on H means the day held. It already reads as a hit on
+             opening, so pressing Done should leave a tick rather than nothing. */
+          if (id === 'H2Only' && !e.broke && !e.miss) e.logged = true;
+          commit(false); closeOv('ovSheet'); return;
+        }
         if (a === 'miss')  {
           var when = parse(dk).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
           if (e.miss) {                       // tapped again: put the streak back
@@ -1167,7 +1211,14 @@
           toast(id + ' missed on ' + when);
           return;
         }
-        if (a === 'done')  { e.done = !e.done; e.miss = false; commit(true); return; }
+        if (a === 'done')  {
+          // N cannot be claimed with an empty Details field.
+          if (id === 'NOTE' && !e.done) {
+            var f2 = document.getElementById('fText');
+            if (!f2 || !f2.value.trim()) { toast('Put something in Details first'); return; }
+          }
+          e.done = !e.done; e.miss = false; commit(true); return;
+        }
         if (a === 'held')  { e.broke = false; e.logged = true; commit(true); return; }
         if (a === 'broke') { e.broke = true;  e.logged = true; commit(true); return; }
         if (a === 'clean') { e.slip = false; e.min = 0; e.logged = true; commit(true); return; }
@@ -1270,6 +1321,12 @@
         var next = fitNext(items[f]);
         if (next) items[f] = next; else delete items[f];
         e.logged = true;
+
+        /* Going past the allowance sets the miss itself rather than leaving it
+           to be remembered. It is set here on the tap, never recomputed on
+           render, so undoing it afterwards sticks. */
+        if (fitOver(items).over) e.miss = true;
+
         commit(true);
       });
     });
