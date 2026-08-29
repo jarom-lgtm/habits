@@ -11,6 +11,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Habits">
 <link rel="apple-touch-icon" href="icon-180.png">
+<script>
+  /* Runs before any markup paints. If a PIN is set the page starts locked, so
+     there is never a frame in which the day's entries are on screen waiting
+     for the app code to load. The key is spelled out because this runs before
+     the app's own constants exist - it must stay in step with PIN_KEY below. */
+  try { if (localStorage.getItem('habits.pin')) document.documentElement.classList.add('locked'); } catch (e) {}
+</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -240,6 +247,48 @@
     opacity: 0; pointer-events: none; transition: all .2s;
   }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ---------------- pin lock ----------------
+     A casual gate, not encryption. Whoever can reach this phone's browser
+     storage can read the data with or without the PIN; the only job here is
+     that a person handed an unlocked phone cannot open Habits and change
+     things. Cold start only, by choice - see the boot block. */
+  .lock { display: none; }
+  html.locked .lock {
+    display: flex; position: fixed; inset: 0; z-index: 100;
+    background: var(--bg); flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 24px 24px calc(24px + env(safe-area-inset-bottom));
+  }
+  html.locked body > header, html.locked body > main,
+  html.locked body > .overlay, html.locked body > .toast { display: none !important; }
+
+  .lock .lockttl { font-size: 17px; font-weight: 650; margin-bottom: 5px; }
+  .lock .locksub {
+    font-size: 12.5px; color: var(--dim); margin-bottom: 26px;
+    min-height: 32px; max-width: 290px; text-align: center; line-height: 1.35;
+  }
+  .lock .locksub.bad { color: var(--danger); }
+
+  .dots { display: flex; gap: 16px; margin-bottom: 34px; }
+  .dots i { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--dimmer); }
+  .dots i.on { background: var(--accent); border-color: var(--accent); }
+  .lock.shake .dots { animation: shake .3s; }
+  @keyframes shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
+
+  /* A keypad rather than a text input: a number field summons the system
+     keyboard, which resizes the viewport and shows the digits as they land. */
+  .keypad { display: grid; grid-template-columns: repeat(3, 74px); gap: 14px; }
+  .keypad button {
+    height: 74px; border: 0; border-radius: 50%; background: var(--card);
+    font-family: inherit; font-size: 25px; font-weight: 500; color: var(--text);
+  }
+  .keypad button:active { background: var(--card-hi); }
+  .keypad button.flat { background: none; font-size: 14px; color: var(--dim); }
+  .lock .forgot {
+    margin-top: 26px; border: 0; background: none; font-family: inherit;
+    font-size: 12.5px; color: var(--dimmer); text-decoration: underline;
+  }
 </style>
 </head>
 <body>
@@ -270,8 +319,23 @@
     <button class="row" id="mRestore"><span class="ic">&#8600;</span><span>Restore from a backup<small>Put an export back, after a wipe or a new phone</small></span></button>
     <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point and minute log<small>Every movement, earned and used, one timeline</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
+    <button class="row" id="mLockNow"><span class="ic">&#128274;</span><span>Lock now<small>Put the PIN screen up before handing the phone over</small></span></button>
+    <button class="row" id="mPin"><span class="ic">&#128273;</span><span>PIN lock<small id="mPinSub">Ask for a PIN when the app opens</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
   </div>
+</div>
+
+<div class="lock" id="lockScreen">
+  <div class="lockttl" id="lockTtl">Enter PIN</div>
+  <div class="locksub" id="lockMsg">Habits is locked</div>
+  <div class="dots" id="lockDots"><i></i><i></i><i></i><i></i></div>
+  <div class="keypad" id="lockPad">
+    <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+    <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+    <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+    <button class="flat" data-k="c">Clear</button><button data-k="0">0</button><button class="flat" data-k="b">&#9003;</button>
+  </div>
+  <button class="forgot" id="lockForgot">Forgot your PIN?</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -286,7 +350,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v34';
+  var APP_VERSION = 'v35';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -295,6 +359,59 @@
      risk of one wrong tap. */
   var SANDBOX = /[?&]sandbox\b/i.test(location.search);
   var KEY = SANDBOX ? 'habits.sandbox' : 'habits.v2';
+
+  /* ---------------- pin storage ----------------
+     One key, shared with the sandbox, so there is only ever one PIN to
+     remember. Deliberately kept OUT of the state blob: an export is meant to
+     be restorable onto a new phone, and a restore should neither carry a lock
+     with it nor knock out the one already on the device it lands on. */
+  var PIN_KEY = 'habits.pin';
+
+  function pinRecord() {
+    try { return JSON.parse(localStorage.getItem(PIN_KEY) || 'null'); }
+    catch (e) { return null; }
+  }
+  function pinIsSet() { return !!pinRecord(); }
+
+  /* Hashing is not what keeps anyone out - the data is readable underneath
+     either way. It is here so that a PIN borrowed from somewhere it DOES
+     matter is not sitting in this phone's storage in the clear. */
+  function weakHash(str) {
+    var h = 5381, i;
+    for (i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+    return ('00000000' + h.toString(16)).slice(-8);
+  }
+  function pinHash(pin, salt, cb, force) {
+    var msg = salt + ':' + pin;
+    if (force !== 'weak' && window.crypto && window.crypto.subtle && window.TextEncoder) {
+      try {
+        window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg)).then(function (buf) {
+          var b = new Uint8Array(buf), out = '', j;
+          for (j = 0; j < b.length; j++) out += ('0' + b[j].toString(16)).slice(-2);
+          cb('s256', out);
+        }, function () { cb('weak', weakHash(msg)); });
+        return;
+      } catch (e) { /* fall through to the sync hash */ }
+    }
+    cb('weak', weakHash(msg));
+  }
+  function pinSet(pin, cb) {
+    var salt = String(Date.now()) + '.' + Math.random().toString(36).slice(2);
+    pinHash(pin, salt, function (algo, hash) {
+      try {
+        localStorage.setItem(PIN_KEY, JSON.stringify({ salt: salt, algo: algo, hash: hash }));
+        cb(true);
+      } catch (e) { cb(false); }
+    });
+  }
+  /* Verified with the algorithm the PIN was STORED under, so a device that
+     loses crypto.subtle does not silently start rejecting every correct PIN. */
+  function pinCheck(pin, cb) {
+    var r = pinRecord();
+    if (!r) { cb(true); return; }
+    pinHash(pin, r.salt, function (algo, hash) { cb(algo === r.algo && hash === r.hash); }, r.algo);
+  }
+  function pinClear() { try { localStorage.removeItem(PIN_KEY); } catch (e) {} }
 
   // kind: 'do'      - tapping records that it happened
   //       'avoid'   - clean by default; tapping records that it did NOT hold
@@ -1841,6 +1958,167 @@
     closeOv('ovMenu'); openLog();
   });
 
+  /* ---------------- lock screen ----------------
+     Three modes share one keypad: entering an existing PIN, choosing a new
+     one, and confirming it. Whatever asked for the screen decides what
+     happens after, so change-PIN and turn-off can both demand the current
+     PIN first without either of them re-implementing the keypad. */
+  var lockEl    = document.getElementById('lockScreen');
+  var lockTtlEl = document.getElementById('lockTtl');
+  var lockMsgEl = document.getElementById('lockMsg');
+  var lockDotsEl = document.getElementById('lockDots');
+  var pinEntry = '', pendingPin = '', lockMode = 'enter', afterLock = null, booted = false;
+
+  function paintDots() {
+    Array.prototype.forEach.call(lockDotsEl.children, function (d, i) {
+      d.className = i < pinEntry.length ? 'on' : '';
+    });
+  }
+  function lockSay(msg, bad) {
+    lockMsgEl.textContent = msg;
+    lockMsgEl.className = 'locksub' + (bad ? ' bad' : '');
+  }
+  function lockShake() {
+    lockEl.classList.add('shake');
+    setTimeout(function () { lockEl.classList.remove('shake'); }, 320);
+  }
+  function showLock(mode, done) {
+    lockMode = mode || 'enter';
+    afterLock = done || null;
+    pinEntry = ''; pendingPin = ''; paintDots();
+    lockTtlEl.textContent = lockMode === 'enter' ? 'Enter PIN' : 'Choose a PIN';
+    lockSay(lockMode === 'enter'
+      ? 'Habits is locked'
+      : 'Four digits. You will type this whenever the app opens fresh.');
+    document.getElementById('lockForgot').style.display =
+      (lockMode === 'enter' && pinIsSet()) ? '' : 'none';
+    document.documentElement.classList.add('locked');
+  }
+  function hideLock() {
+    document.documentElement.classList.remove('locked');
+    pinEntry = ''; paintDots();
+  }
+  /* First unlock of the session is what actually starts the app; later ones
+     are only ever re-showing what is already in memory. */
+  function resumeApp() {
+    if (!booted) { booted = true; bootApp(); }
+    else render();
+  }
+
+  function entryDone() {
+    if (lockMode === 'enter') {
+      pinCheck(pinEntry, function (ok) {
+        if (!ok) {
+          pinEntry = ''; paintDots(); lockShake();
+          lockSay('That PIN did not match', true);
+          return;
+        }
+        hideLock();
+        var d = afterLock; afterLock = null;
+        if (d) d(); else resumeApp();
+      });
+      return;
+    }
+    if (lockMode === 'new') {
+      pendingPin = pinEntry; pinEntry = ''; paintDots();
+      lockMode = 'confirm';
+      lockTtlEl.textContent = 'Confirm PIN';
+      lockSay('Enter the same four digits again');
+      return;
+    }
+    if (pinEntry !== pendingPin) {
+      pinEntry = ''; pendingPin = ''; lockMode = 'new'; paintDots(); lockShake();
+      lockTtlEl.textContent = 'Choose a PIN';
+      lockSay('Those did not match - start again', true);
+      return;
+    }
+    pinSet(pendingPin, function (ok) {
+      pinEntry = ''; pendingPin = ''; paintDots();
+      if (!ok) {
+        lockMode = 'new'; lockTtlEl.textContent = 'Choose a PIN';
+        lockSay('Storage is blocked - the PIN could not be saved', true);
+        return;
+      }
+      hideLock(); resumeApp(); syncPinMenu();
+      var d = afterLock; afterLock = null;
+      if (d) d();
+    });
+  }
+
+  document.getElementById('lockPad').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-k]') : null;
+    if (!b) return;
+    var k = b.getAttribute('data-k');
+    if (k === 'c') { pinEntry = ''; paintDots(); return; }
+    if (k === 'b') { pinEntry = pinEntry.slice(0, -1); paintDots(); return; }
+    if (pinEntry.length >= 4) return;
+    pinEntry += k; paintDots();
+    /* A beat so the fourth dot is actually seen filling before the screen
+       reacts - without it a correct PIN looks like nothing was typed. */
+    if (pinEntry.length === 4) setTimeout(entryDone, 90);
+  });
+
+  /* Honest rather than useful: there is no bypass, because a bypass a
+     stranger could also press is not a lock. Saying so costs nothing - the
+     way back in requires wiping the data, which is not a quiet act. */
+  document.getElementById('lockForgot').addEventListener('click', function () {
+    lockSay('There is no way past this. Clearing the browser\'s site data removes the PIN and the history together - a backup export is what puts the history back.', true);
+  });
+
+  /* ---------------- pin menu ---------------- */
+  function syncPinMenu() {
+    var on = pinIsSet();
+    document.getElementById('mPinSub').textContent = on
+      ? 'On - change it, or turn it off'
+      : 'Off - ask for a PIN when the app opens';
+    document.getElementById('mLockNow').style.display = on ? '' : 'none';
+  }
+
+  document.getElementById('mLockNow').addEventListener('click', function () {
+    closeOv('ovMenu'); closeOv('ovSheet');
+    showLock('enter');
+  });
+
+  document.getElementById('mPin').addEventListener('click', function () {
+    closeOv('ovMenu');
+
+    if (!pinIsSet()) {
+      sheetEl.innerHTML = head('Turn on the PIN lock', 'Asked when the app opens fresh') +
+        '<div class="note">' +
+        'This stops someone holding your unlocked phone from opening Habits and changing things. It is <b>not</b> encryption - it does not protect the data from anyone who knows their way around a browser.<br><br>' +
+        '<b>You are asked on a fresh open only.</b> If the app is still open in the background, tapping back to it walks straight in. Use <b>Lock now</b> before handing the phone over.<br><br>' +
+        '<b>There is no way back in without it.</b> Run <b>Export for Claude</b> first, so a forgotten PIN costs a reinstall and nothing else.' +
+        '</div>' +
+        '<div class="btns"><button class="btn ghost" data-act="x">Cancel</button>' +
+        '<button class="btn go" data-act="go">Choose a PIN</button></div>';
+      sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+      sheetEl.querySelector('[data-act="go"]').addEventListener('click', function () {
+        closeOv('ovSheet');
+        showLock('new', function () { toast('PIN lock is on'); });
+      });
+      openOv('ovSheet');
+      return;
+    }
+
+    sheetEl.innerHTML = head('PIN lock', 'On - asked when the app opens fresh') +
+      '<div class="note">Changing it or turning it off asks for the current PIN first.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
+      '<button class="btn warn" data-act="ch">Change PIN</button></div>' +
+      '<div class="btns" style="margin-top:10px"><button class="btn danger" data-act="off">Turn the PIN lock off</button></div>';
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    sheetEl.querySelector('[data-act="ch"]').addEventListener('click', function () {
+      closeOv('ovSheet');
+      showLock('enter', function () { showLock('new', function () { toast('PIN changed'); }); });
+    });
+    sheetEl.querySelector('[data-act="off"]').addEventListener('click', function () {
+      closeOv('ovSheet');
+      showLock('enter', function () {
+        pinClear(); syncPinMenu(); toast('PIN lock is off');
+      });
+    });
+    openOv('ovSheet');
+  });
+
   document.getElementById('mAbout').addEventListener('click', function () {
     closeOv('ovMenu');
     sheetEl.innerHTML = head('About', APP_VERSION + (SANDBOX ? ' &middot; sandbox' : '')) +
@@ -2046,11 +2324,23 @@
 
   load();
 
-  // The sandbox arrives already full - an empty practice app shows nothing.
-  /* Reseed when the stored sample predates the current one, so a sandbox
-     visited before an update does not sit on stale data with no sign of it. */
-  if (SANDBOX && (Object.keys(state.days).length === 0 || state.demoSeed !== DEMO_START)) loadDemo();
-  else render();
+  function bootApp() {
+    // The sandbox arrives already full - an empty practice app shows nothing.
+    /* Reseed when the stored sample predates the current one, so a sandbox
+       visited before an update does not sit on stale data with no sign of it. */
+    if (SANDBOX && (Object.keys(state.days).length === 0 || state.demoSeed !== DEMO_START)) loadDemo();
+    else render();
+  }
+
+  syncPinMenu();
+
+  /* Cold start only, deliberately. The lock is for a phone handed over with
+     the app closed; coming back to one left open in the background does not
+     ask again. Lock now, in the menu, is the deliberate version of that.
+     Nothing renders until the PIN clears, so a locked app has not read a
+     single day onto the screen. */
+  if (pinIsSet()) showLock('enter');
+  else { booted = true; bootApp(); }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
