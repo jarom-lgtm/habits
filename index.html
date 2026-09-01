@@ -219,6 +219,15 @@
   .btn.stopred { background: var(--danger); color: #2a0f0f; font-weight: 650; }
   .dirlbl { font-size: 11px; color: var(--dim); text-align: center; margin-bottom: 5px; letter-spacing: .2px; }
 
+  /* Set time sits under the stamp it stands in for, and is deliberately the
+     smaller of the two - stamping is still the fast path, this is the way back
+     when the moment was missed. Tapping it swaps itself for the picker. */
+  .setcol { flex: 1; min-width: 0; }
+  .btn.tiny { width: 100%; height: 34px; font-size: 12.5px; font-weight: 560; background: var(--card-hi); color: var(--dim); }
+  .timeedit { display: none; height: 44px; }
+  .setcol.open .btn.tiny { display: none; }
+  .setcol.open .timeedit { display: block; }
+
   .note { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 10px 0 14px; }
   .note b { color: var(--text); font-weight: 600; }
   .warnbox { background: var(--warn-deep); border: 1px solid #5a4a1c; color: var(--warn); border-radius: 11px; padding: 11px 13px; font-size: 13px; line-height: 1.45; margin-bottom: 14px; }
@@ -522,6 +531,17 @@
     };
   }
 
+  /* FIT's tick has to be able to come back off. logged was latched true by the
+     first chip or stamp and cleared by nothing, so once FIT had been touched
+     the card was green for good: cycling every chip back to nothing and
+     clearing the stamp still left a tick, with no way to say "still working on
+     it". It reads off what is actually recorded instead, so undoing the last
+     thing undoes the tick with it. */
+  function setFit(e) {
+    if (e.items && !Object.keys(e.items).length) delete e.items;
+    e.logged = !!(e.bed || e.items);
+  }
+
   /* M is stamped rather than judged by eye: the time the phone goes down
      decides its own size. Under half an hour past 12 is -u, under the
      hour -uu, an hour or more is -U and starts costing 8ANK points at one an
@@ -539,7 +559,8 @@
     return 'U';
   }
   // A quarter point per quarter hour past the hour, rather than a whole point
-  // for any part of one - the same granularity the eating window uses.
+  // for any part of one. M is charged at a point an hour; the eating window
+  // runs at half that rate, so the two no longer share a scale.
   function bedPoints(mins) {
     if (mins === null || mins < 60) return 0;
     return Math.ceil((mins / 60) * 4) / 4;
@@ -684,23 +705,34 @@
 
   /* ---------------- JUST8 points ---------------- */
 
-  function windowHours(e) {
+  function windowMinutes(e) {
     if (!e || !e.eatStart || !e.eatEnd) return 0;
     var a = e.eatStart.split(':'), b = e.eatEnd.split(':');
     var m1 = (+a[0]) * 60 + (+a[1]), m2 = (+b[0]) * 60 + (+b[1]);
     if (m2 < m1) m2 += 1440;                       // ran past the end of the day
-    return (m2 - m1) / 60;
+    return m2 - m1;
+  }
+  function windowHours(e) { return windowMinutes(e) / 60; }
+
+  /* A point per two hours past the eight, charged in quarter points and always
+     rounded UP to the next one - so half an hour over is a quarter point, and
+     thirty-one minutes is a half. Worked in whole minutes rather than
+     fractional hours on purpose: every boundary lands exactly on a half hour,
+     and a float would put some of them on the wrong side of one by a hair. */
+  var WINDOW_MIN = 480;                            // the eight hours, in minutes
+  function overPoints(mins) {
+    if (mins <= WINDOW_MIN) return 0;
+    return Math.ceil((mins - WINDOW_MIN) / 30) / 4;
   }
 
-  // Cups cost a point per 3 cups; CupS cost 3 points a cup; every
-  // hour past 8 costs a point, chargeable in quarter-point 15-minute slices.
+  // Cups cost a point per 3 cups; CupS cost 3 points a cup; the time past the
+  // eight-hour window costs whatever overPoints makes of it.
   function j8DayCost(e) {
     if (!e) return 0;
     var c = 0;
     if (e.cups)  c += e.cups / 3;
     if (e.cupS)  c += e.cupS * 3;
-    var h = windowHours(e);
-    if (h > 8) c += Math.round((h - 8) * 4) / 4;
+    c += overPoints(windowMinutes(e));
     // Always up to the next quarter point - never rounded in his favour.
     return Math.ceil(c * 4) / 4;
   }
@@ -1448,7 +1480,7 @@
     }
 
     else if (id === 'JUST8') {
-      var h8 = windowHours(e);
+      var h8 = windowHours(e), m8 = windowMinutes(e), over8 = Math.max(0, m8 - WINDOW_MIN);
       html = head('JUST8', when) +
         /* The TH8NK balance only appears on a day it can actually be reached.
            A reserve you cannot touch is not information, it is temptation. */
@@ -1462,15 +1494,32 @@
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
             'cover it from the TH8NK on a TH8NK day, or the day is a miss.</div>'
           : '') +
-        '<div class="field"><label>Eating window</label>' +
+        '<div class="field"><label>Eating window &mdash; 1 pt per 2 h past 8</label>' +
           '<div class="btns" style="margin-bottom:8px">' +
             // Green opens the window, red closes it - the colours carry the
             // meaning so neither button has to be read.
             '<button class="btn go" data-act="eatstart">' + (e.eatStart ? 'Started ' + e.eatStart : 'Start eating') + '</button>' +
             '<button class="btn stopred" data-act="eatend">' + (e.eatEnd ? 'Stopped ' + e.eatEnd : 'Stop eating') + '</button>' +
           '</div>' +
+          /* The stamp above is for when the phone is in hand at the time, and
+             often it is not - the meal starts and the app gets opened an hour
+             later. Either end can be set by hand rather than lost. */
+          '<div class="btns" style="margin-top:0">' +
+            '<div class="setcol">' +
+              '<button class="btn tiny" data-act="settime">Set time</button>' +
+              '<input type="time" class="timeedit" data-field="eatStart" value="' + (e.eatStart || '') + '">' +
+            '</div>' +
+            '<div class="setcol">' +
+              '<button class="btn tiny" data-act="settime">Set time</button>' +
+              '<input type="time" class="timeedit" data-field="eatEnd" value="' + (e.eatEnd || '') + '">' +
+            '</div>' +
+          '</div>' +
           (e.eatStart && e.eatEnd
-            ? '<div class="note" style="margin:0">Window <b>' + fmt(Math.round(h8 * 4) / 4) + ' h</b>' + (h8 > 8 ? ' &mdash; ' + fmt(Math.round((h8 - 8) * 4) / 4) + ' over, costs ' + fmt(Math.round((h8 - 8) * 4) / 4) + ' pt' : ' &mdash; inside the window') + '</div>'
+            ? '<div class="note" style="margin:10px 0 0">Window <b>' + fmt(Math.round(h8 * 4) / 4) + ' h</b>' +
+              (over8 > 0
+                ? ' &mdash; ' + (over8 >= 60 ? Math.floor(over8 / 60) + 'h ' + (over8 % 60) + 'm' : over8 + ' min') +
+                  ' over, costs <b>' + fmt(overPoints(m8)) + ' pt</b>'
+                : ' &mdash; inside the window') + '</div>'
             : '') +
         '</div>' +
         '<div class="field"><label>Cups &mdash; 1 pt per 3 cups</label>' +
@@ -1712,18 +1761,18 @@
         if (a === 'bedok') {
           e.bed = '23:59';                       // stands for "in before twelve"
           if (e.items) delete e.items.M;
-          e.mPts = 0; e.logged = true;
+          e.mPts = 0; setFit(e);
           commit(true); toast('In before 12'); return;
         }
         if (a === 'bed') {
-          if (e.bed) { e.bed = ''; if (e.items) delete e.items.M; e.mPts = 0; commit(true); return; }
+          if (e.bed) { e.bed = ''; if (e.items) delete e.items.M; e.mPts = 0; setFit(e); commit(true); return; }
           e.bed = nowHM();
           var mv = bedMinutesOver(e.bed);
           var g = bedGrade(mv);
           e.items = e.items || {};
           if (g) e.items.M = g; else delete e.items.M;
           e.mPts = bedPoints(mv);
-          e.logged = true;
+          setFit(e);
           commit(true);
           toast(g ? 'M-' + g + ' recorded' : 'Nothing counted');
           return;
@@ -1742,6 +1791,20 @@
           if (stopTank() < 1) { toast('Nothing in the Tank'); return; }
           e.fromTank = (e.fromTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
+        }
+        /* Opens a native time control rather than stamping the clock. On the
+           phone that is the wheel; anywhere with a keyboard it can be typed.
+           Unlike the stamp it will overwrite a time already there - setting one
+           by hand is deliberate in a way a stray tap is not. */
+        if (a === 'settime') {
+          var col = b.parentNode;
+          col.classList.add('open');
+          var tin = col.querySelector('input[type=time]');
+          if (tin) {
+            tin.focus();
+            if (tin.showPicker) { try { tin.showPicker(); } catch (err) {} }
+          }
+          return;
         }
         if (a === 'eatstart') {
           // One-way. The window opened when it opened; letting it be unclicked
@@ -1782,6 +1845,17 @@
       });
     });
 
+    /* Written on change rather than on every keystroke, so a half-typed hour
+       never lands in the record. */
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('.timeedit'), function (t) {
+      t.addEventListener('change', function () {
+        if (locked) { toast('That day is finalized'); return; }
+        if (!t.value) return;
+        e[t.getAttribute('data-field')] = t.value;
+        commit(true);
+      });
+    });
+
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-werk]'), function (b) {
       b.addEventListener('click', function () {
         var w = b.getAttribute('data-werk');
@@ -1804,7 +1878,7 @@
         var items = e.items || (e.items = {});
         var next = fitNext(items[f]);
         if (next) items[f] = next; else delete items[f];
-        e.logged = true;
+        setFit(e);
 
         /* Going past the allowance sets the miss itself rather than leaving it
            to be remembered. It is set here on the tap, never recomputed on
