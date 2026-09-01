@@ -484,6 +484,16 @@
   var WERK  = ['W', 'E', 'R', 'K', 'O', 'U', 'T', 'S'];
   var FITB  = ['M', 'T', 'W', 'TH', 'F'];
 
+  /* Eight a week, spent down, and not carried over - an unused allowance is
+     not savings, it is a week that did not need it.
+
+     Nothing happens when it reaches nought. It does not charge a point, it
+     does not set a chip, it does not colour the card: the count exists to say
+     when the free ones are gone, and what to do about the next hair is a
+     decision rather than an arithmetic consequence. TH is where those get
+     recorded, by hand, the way everything else that costs something is. */
+  var HAIRS_PER_WEEK = 8;
+
   /* A full session is the target and also the ceiling - going longer is common
      but not worth tracking, so the stepper opens at a full one and is walked
      DOWN for a partial rather than up from zero. The overwhelming majority of
@@ -645,6 +655,26 @@
     if (empty) delete day[id];
     if (Object.keys(day).length === 0) delete state.days[dk];
   }
+
+  /* ---------------- the weekly hair allowance ----------------
+     The week runs Sunday to Saturday - the same day the 8ANK's extra point and
+     the TH8NK's weekly 3 land on. A second weekly rhythm keeping its own
+     boundary would mean two different answers to "what week is it", and the
+     one that disagreed with the banks would be the one believed. */
+  function weekStart(d) { return addDays(d, -d.getDay()); }   // getDay: 0 is Sunday
+
+  function hairsUsedInWeek(dk) {
+    var s = weekStart(parse(dk)), n = 0;
+    for (var i = 0; i < 7; i++) {
+      var day = state.days[key(addDays(s, i))];
+      if (day && day.FIT && day.FIT.hairs) n += day.FIT.hairs;
+    }
+    return n;
+  }
+  /* Floored at nought. The counter measures the allowance, not the hairs - once
+     it is spent there is nothing left for it to count, and a negative number
+     would be a running total of something the app deliberately does not score. */
+  function hairsLeft(dk) { return Math.max(0, HAIRS_PER_WEEK - hairsUsedInWeek(dk)); }
 
   /* ---------------- streaks ----------------
      A streak runs from its start date and is broken ONLY by an explicitly
@@ -1470,6 +1500,22 @@
               ? '<div class="warnbox">An <b>X</b> is a blown day. Mark it missed.</div>'
               : '<div class="warnbox">Past the allowance &mdash; ' + tally.small + '&nbsp;u and ' + tally.big + '&nbsp;U. If that is right, mark it missed.</div>')
           : '') +
+        /* Reads as what is left rather than what is spent, because the number
+           worth knowing standing in front of the mirror is how many are still
+           going. The stepper moves the number it sits under: minus spends one. */
+        '<div class="field"><label>Hairs &mdash; ' + HAIRS_PER_WEEK + ' a week, resets Sunday</label>' +
+          '<div class="stepper">' +
+            '<button data-act="hair-">&minus;</button>' +
+            '<div class="val" id="hairVal">' + hairsLeft(dk) + ' of ' + HAIRS_PER_WEEK + ' left</div>' +
+            '<button data-act="hair+">+</button>' +
+          '</div>' +
+          '<div class="note" style="margin:8px 0 0">' +
+            ((e.hairs || 0) ? '<b>' + e.hairs + '</b> used today. ' : '') +
+            (hairsLeft(dk)
+              ? '&minus; spends one, + puts it back.'
+              : 'None left this week &mdash; anything more goes on <b>TH</b>.') +
+          '</div>' +
+        '</div>' +
         '<div class="field"><label>Cover M from the 8ANK &mdash; a point an hour, in quarters</label>' +
           '<div class="stepper">' +
             '<button data-act="mpts-">&minus;</button>' +
@@ -1748,6 +1794,19 @@
         if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); setWerk(e); commit(true); return; }
         if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
         if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
+        /* Plus only ever gives back a hair used on the day being looked at.
+           Returning one spent on Tuesday while standing on Thursday would edit
+           Tuesday from a day that has no business writing to it. */
+        if (a === 'hair-') {
+          if (hairsLeft(dk) <= 0) { toast('None left this week - put it on TH'); return; }
+          e.hairs = (e.hairs || 0) + 1;
+          commit(true); return;
+        }
+        if (a === 'hair+') {
+          if (!e.hairs) { toast('None used on this day'); return; }
+          e.hairs -= 1;
+          commit(true); return;
+        }
         if (a === 'mpts-') { e.mPts = Math.max(0, Math.round(((e.mPts || 0) - 0.25) * 100) / 100); commit(true); return; }
         if (a === 'mpts+') { e.mPts = Math.round(((e.mPts || 0) + 0.25) * 100) / 100; commit(true); return; }
 
@@ -2430,6 +2489,7 @@
         if (e.bed) p.push('bed' + e.bed);
         if (e.items) p.push(Object.keys(e.items).map(function (k) { return k + '-' + e.items[k]; }).join(','));
         if (e.mPts) p.push('M' + e.mPts + 'pt');
+        if (e.hairs) p.push(e.hairs + 'hair');
         if (e.eatStart || e.eatEnd) p.push((e.eatStart || '?') + '-' + (e.eatEnd || '?'));
         if (e.cups) p.push(e.cups + 'c');
         if (e.cupS) p.push(e.cupS + 'C');
