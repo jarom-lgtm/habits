@@ -404,7 +404,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v41';
+  var APP_VERSION = 'v42';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -620,6 +620,7 @@
         state.demo   = !!p.demo;
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
         state.demoSeed = p.demoSeed;
+        if (p.anchor) state.anchor = p.anchor;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     if (!state.finals) state.finals = {};
@@ -814,6 +815,11 @@
      day there is nothing to fall back on, and going below zero is a miss.     */
   var HOLIDAYS_PER_YEAR = 8;
 
+  /* The most that can come out of the TH8NK in one day - one tap of Pull 3,
+     which arrives in the 8ANK as a single point. The reserve is meant to cover
+     a bad day, not to be emptied into a bad week. */
+  var PULL_MAX_PER_DAY = 3;
+
   /* A perfect day: all eight green, nothing amber, nothing missed.
      Read straight off the entries rather than off cardState, because the JUST8
      card's state depends on the bank and the bonus is paid INTO the bank -
@@ -837,14 +843,47 @@
     return true;
   }
 
+  /* ---------------- restored balances ----------------
+     No balance is stored anywhere. Every one of them is walked out of the
+     entries from the start date each time it is asked for, which is what keeps
+     them honest - and which also means a balance cannot simply be typed in and
+     set. It has to be seeded, and the walk resumed from the seed.
+
+     An anchor is the opening balance on one named day: before it there is
+     nothing to compute, from it the ordinary rules run again exactly as
+     before. It is the half of a restore a pasted backup cannot give you - the
+     numbers you were carrying when there is no export to paste.
+
+     It touches no entry. Days before the anchor keep whatever they held; the
+     anchor only says where the arithmetic reopens, and it says so out loud in
+     the point and minute log rather than appearing as a balance from nowhere. */
+  function anchor() {
+    var a = state.anchor;
+    if (!a || !/^\d{4}-\d{2}-\d{2}$/.test(a.date || '')) return null;
+    if (isNaN(parse(a.date).getTime())) return null;
+    if (daysBetween(parse(a.date), today) < 0) return null;      // dated ahead of today
+    return a;
+  }
+
   function j8() {
     if (_j8) return _j8;
     var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {}, log: {} };
     var start = parse(state.starts.JUST8);
+    var bank = 0, th = 0;
+
+    var anc = anchor();
+    if (anc && daysBetween(start, parse(anc.date)) >= 0) {
+      start = parse(anc.date);
+      bank  = +(anc.bank8 || 0);
+      th    = +(anc.thank || 0);
+      mv(res, anc.date, '8ANK',  bank, 'restored by hand');
+      mv(res, anc.date, 'TH8NK', th,   'restored by hand');
+    }
+
     var n = daysBetween(start, today);
     if (n < 0) { _j8 = res; return res; }
 
-    var bank = 0, th = 0, d = start;
+    var d = start;
     for (var i = 0; i <= n; i++) {
       var dk = key(d);
       var e = get(dk, 'JUST8');
@@ -990,10 +1029,25 @@
     if (_stop) return _stop;
     var res = { bank: 0, tank: 0, cleanRun: 0, misses: {}, log: {} };
     var start = parse(state.starts.STOP);
+    var bank = 0, tank = 0, clean = 0;
+
+    /* Same anchor as the JUST8 walk. The clean run deliberately restarts at
+       zero: how many unbroken days he was on is not one of the numbers he types
+       in, and claiming a run the entries cannot show would hand him an open
+       Tank he had not earned. */
+    var anc = anchor();
+    if (anc && daysBetween(start, parse(anc.date)) >= 0) {
+      start = parse(anc.date);
+      bank  = +(anc.stopBank || 0);
+      tank  = +(anc.stopTank || 0);
+      mv(res, anc.date, 'Bank', bank, 'restored by hand');
+      mv(res, anc.date, 'Tank', tank, 'restored by hand');
+    }
+
     var n = daysBetween(start, today);
     if (n < 0) { _stop = res; return res; }
 
-    var bank = 0, tank = 0, clean = 0, d = start, runMiss = 0;
+    var d = start, runMiss = 0;
     for (var i = 0; i <= n; i++) {
       var dk = key(d), e = get(dk, 'STOP');
 
@@ -1669,7 +1723,12 @@
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">TH8NK &rarr; 8ANK</div>' +
-              '<button class="btn ghost" data-act="thank3" style="width:100%">Pull 3 &rarr; +1</button>' +
+              /* Spent for the day it says so on the button. A control that
+                 looks live and then refuses reads as a fault, not a rule. */
+              '<button class="btn ghost" data-act="thank3" style="width:100%' +
+                (((e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
+                (((e.thankPull || 0) >= PULL_MAX_PER_DAY) ? 'Pulled today' : 'Pull 3 &rarr; +1') +
+              '</button>' +
             '</div>' +
             '<div style="flex:1">' +
               '<div class="dirlbl">8ANK &rarr; TH8NK</div>' +
@@ -1898,6 +1957,9 @@
         if (a === 'tclear')  { e.travPick = ''; e.trav = ''; e.travWho = ''; e.travWhat = ''; commit(true); return; }
 
         if (a === 'thank3') {
+          if ((e.thankPull || 0) >= PULL_MAX_PER_DAY) {
+            toast('Already pulled today - ' + PULL_MAX_PER_DAY + ' a day is the limit'); return;
+          }
           if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
           e.thankPull = (e.thankPull || 0) + 3;
           commit(true); toast('Pulled 3, gained 1 point'); return;
@@ -2433,8 +2495,9 @@
       'Everything you tap stays on this phone. Nothing is uploaded, there is no account, and it works with no signal.<br><br>' +
       '<b>Every streak holds by default.</b> Days you never opened the app still count as kept. Nothing breaks until you say it broke.<br><br>' +
       'To record a miss after the fact, <b>tap the date at the top</b>, pick the day it happened, then open that habit and choose Miss. Same for filling in details from days you were offline.<br><br>' +
-      'Because the data is only here, use <b>Export for Claude</b> now and then so the history reaches HEALTH.md. Clearing this browser\'s site data erases everything, so export before doing that.<br><br>' +
-      'An export can be put back with <b>Restore from a backup</b> &mdash; paste the whole thing in, including the last line.' +
+      'Because the data is only here, <b>clearing this browser\'s site data erases everything</b>. Export now and then so there is something to put back.<br><br>' +
+      'An export can be put back with <b>Restore from a backup</b> &mdash; paste the whole thing in, including the last line. With no export to paste, the same sheet will take the four balances by hand; the start dates go in on their own sheet.<br><br>' +
+      'The export itself is for reading: the streaks, and what you wrote on each day. The workings behind the numbers live in the <b>point and minute log</b>.' +
       '</div><div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
     openOv('ovSheet');
@@ -2445,82 +2508,62 @@
     var o = [];
     o.push('CHECK EXPORT - ' + key(today));
     o.push('');
-    o.push('BANKS   8ANK ' + fmt(bank8()) + '   TH8NK ' + fmt(thank()) + '   STOP ' + fmt(stopBank()) + ' min');
+    o.push('BANKS   8ANK ' + fmt(bank8()) + '   TH8NK ' + fmt(thank()) +
+           '   STOP bank ' + fmt(stopBank()) + ' min   tank ' + fmt(stopTank()) + ' min');
+
+    /* Where each one stands, and nothing more. The run-by-run history that used
+       to follow was the longest section in the file and the least read - it is
+       a tap away on the Streaks sheet, laid out far better than a text list. */
     o.push('');
+    o.push('STREAKS');
     HABITS.forEach(function (h) {
       var s = streak(h.id);
       var segs = streakSegments(h.id);
       var best = segs.reduce(function (m2, x) { return Math.max(m2, x.days); }, 0);
       var breaks = segs.filter(function (x) { return !x.current; }).length;
-      o.push(h.id + '  -  start ' + state.starts[h.id] +
-             '  |  now ' + (s < 0 ? 'not started' : s + ' d') +
-             '  |  best ' + best + ' d' +
-             '  |  breaks ' + breaks);
+      o.push('  ' + h.id +
+             '  -  now ' + (s < 0 ? 'not started' : s.toLocaleString() + ' d') +
+             ', best ' + best.toLocaleString() + ' d, ' +
+             (breaks ? breaks + ' break' + (breaks === 1 ? '' : 's') : 'never broken') +
+             ', since ' + state.starts[h.id]);
     });
 
+    /* Words only. The per-day workings used to sit here too - every cup, every
+       window, every letter and transfer - and a year of them buried the one
+       thing anybody actually reads this for. Those numbers are all still in the
+       app on the day they belong to, and the point and minute log accounts for
+       every one of them; repeating them here as codes served nobody.
+
+       Three kinds of writing, in the order they matter: the day's own note,
+       then what was done on R, then who it went to on N. A day with none of the
+       three is left out rather than printed empty. */
     o.push('');
-    o.push('EVERY STREAK');
-    HABITS.forEach(function (h) {
-      var segs = streakSegments(h.id);
-      if (!segs.length) return;
-      o.push(h.id + ':');
-      segs.slice().reverse().forEach(function (x) {
-        o.push('  ' + x.from + ' -> ' + (x.current ? 'now' : x.to) + '  ' + x.days + ' d' + (x.current ? '  (current)' : ''));
-      });
+    o.push('NOTES');
+    var noteKeys = {};
+    Object.keys(state.dayNotes || {}).forEach(function (dk) { noteKeys[dk] = true; });
+    Object.keys(state.days).forEach(function (dk) {
+      var day = state.days[dk] || {};
+      if ((day.RAK && day.RAK.note) || (day.NOTE && day.NOTE.who)) noteKeys[dk] = true;
     });
 
-    o.push('');
-    o.push('DAILY LOG');
-    /* The day's note goes next to that day's own line rather than into a
-       section of its own. Read months later, the note is only worth anything
-       beside what the day actually did - the ticks explain the note and the
-       note explains the ticks. A day carrying nothing but a note still gets a
-       line, because "wrote nothing down, logged nothing" and "logged nothing
-       but had something to say" are not the same day. */
-    var logKeys = Object.keys(state.days);
-    Object.keys(state.dayNotes || {}).forEach(function (dk) {
-      if (dayNote(dk).trim() && logKeys.indexOf(dk) === -1) logKeys.push(dk);
+    var written = Object.keys(noteKeys).filter(function (dk) {
+      var day = state.days[dk] || {};
+      return dayNote(dk).trim() || (day.RAK && day.RAK.note) || (day.NOTE && day.NOTE.who);
+    }).sort().reverse();
+
+    if (!written.length) o.push('  (nothing written down yet)');
+    written.forEach(function (dk) {
+      var day = state.days[dk] || {};
+      /* Newlines are folded to " / " so one day stays one block and a long note
+         cannot be misread as the start of another day. */
+      var dnote = dayNote(dk).trim().replace(/\s*\n\s*/g, ' / ');
+      o.push('');
+      o.push(dk);
+      if (dnote) o.push('  ' + dnote);
+      if (day.RAK && day.RAK.note) o.push('  RAK   ' + day.RAK.note);
+      if (day.NOTE && day.NOTE.who) o.push('  NOTE  ' + day.NOTE.who);
     });
-    logKeys.sort().reverse().forEach(function (dk) {
-      var day = state.days[dk] || {}, bits = [];
-      HABITS.forEach(function (h) {
-        var e = day[h.id];
-        if (!e) return;
-        var p = [];
-        if (e.miss) p.push('MISS');
-        if (e.broke) p.push('broke');
-        if (e.done) p.push('done');
-        if (e.slip) p.push('slip' + (e.min || 0));
-        if (h.id === 'WERKOUTS' && e.min) p.push(e.min + 'min');
-        if (e.types && e.types.length) p.push(e.types.join(''));
-        if (e.note) p.push('"' + e.note + '"');
-        if (e.who) p.push('->' + e.who);
-        if (e.bed) p.push('bed' + e.bed);
-        if (e.items) p.push(Object.keys(e.items).map(function (k) { return k + '-' + e.items[k]; }).join(','));
-        if (e.mPts) p.push('M' + e.mPts + 'pt');
-        if (e.hairs) p.push(e.hairs + 'hair');
-        if (e.eatStart || e.eatEnd) p.push((e.eatStart || '?') + '-' + (e.eatEnd || '?'));
-        if (e.cups) p.push(e.cups + 'c');
-        if (e.cupS) p.push(e.cupS + 'C');
-        if (e.trav) {
-          p.push((e.trav === 'T' ? 'TH8NKDAY' : 'HOLIDAY') +
-                 (e.trav === 'T'
-                   ? (e.travWho  ? ' "' + e.travWho  + '"' : '')
-                   : (e.travWhat ? ' "' + e.travWhat + '"' : '')));
-        }
-        if (e.thankPull) p.push('pull' + e.thankPull);
-        if (e.thankDep) p.push('dep' + e.thankDep);
-        if (p.length) bits.push(h.id + ': ' + p.join(' '));
-      });
-      if (bits.length) o.push(dk + '  ' + bits.join('  |  '));
-      /* Newlines are folded to " / " so one day stays one block and the log
-         cannot be misread as two days when a note runs long. */
-      var dnote = dayNote(dk).trim();
-      if (dnote) {
-        if (!bits.length) o.push(dk);
-        o.push('    DAY NOTE  "' + dnote.replace(/\s*\n\s*/g, ' / ') + '"');
-      }
-    });
+
     o.push('');
     o.push('--- BACKUP - paste this whole export into Restore from a backup ---');
     o.push(JSON.stringify(state));
@@ -2568,12 +2611,80 @@
     return null;
   }
 
+  /* Two ways back, because there are two ways to lose this and they do not lose
+     the same thing. A pasted export brings back every day; it needs an export to
+     exist. Typed balances bring back only the four numbers, and need nothing at
+     all - which is the case that actually happens, a wipe with no export and the
+     start dates re-entered by hand. Neither replaces the other. */
+  var RESTORE_FIELDS = [
+    { k: 'bank8',    label: '8ANK &middot; JUST8',      get: bank8 },
+    { k: 'thank',    label: 'TH8NK &middot; JUST8',     get: thank },
+    { k: 'stopBank', label: 'Bank &middot; STOP (min)', get: stopBank },
+    { k: 'stopTank', label: 'Tank &middot; STOP (min)', get: stopTank }
+  ];
+
+  function openBalances() {
+    var a = state.anchor || {};
+    sheetEl.innerHTML = head('Set the balances', 'When there is no export to paste') +
+      '<div class="note">Enter the four numbers <b>as they stood at the start of the ' +
+      'day below</b>. Everything logged from that day on is counted on top as ' +
+      'normal.<br><br>This changes no day you have already tapped, and it shows up ' +
+      'in the point and minute log so the numbers never appear from nowhere.</div>' +
+      '<div class="field"><label>Balances are from the start of</label>' +
+        '<input type="text" id="ancDate" value="' + escAttr(a.date || key(today)) +
+        '" placeholder="YYYY-MM-DD" autocomplete="off"></div>' +
+      RESTORE_FIELDS.map(function (f) {
+        var v = (a[f.k] !== undefined && a[f.k] !== null) ? a[f.k] : f.get();
+        return '<div class="field"><label>' + f.label + '</label>' +
+          '<input type="text" inputmode="decimal" data-anc="' + f.k + '" value="' + escAttr(fmt(v)) +
+          '" autocomplete="off"></div>';
+      }).join('') +
+      '<div class="btns" style="margin-bottom:10px">' +
+        '<button class="btn go" data-act="saveanc" style="flex:1">Save balances</button></div>' +
+      '<div class="btns">' +
+        '<button class="btn ghost" data-act="clearanc">Clear</button>' +
+        '<button class="btn ghost" data-act="back">Back</button></div>';
+
+    sheetEl.querySelector('[data-act="back"]').addEventListener('click', openRestore);
+
+    /* Clearing drops the anchor and lets the walk run from the start dates
+       again - the only way back if a wrong figure was saved. */
+    sheetEl.querySelector('[data-act="clearanc"]').addEventListener('click', function () {
+      delete state.anchor;
+      save(); render(); closeOv('ovSheet'); toast('Balances counted from the start again');
+    });
+
+    sheetEl.querySelector('[data-act="saveanc"]').addEventListener('click', function () {
+      var d = document.getElementById('ancDate').value.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(parse(d).getTime())) {
+        toast('Check the date - use YYYY-MM-DD'); return;
+      }
+      if (daysBetween(parse(d), today) < 0) { toast('That date is in the future'); return; }
+
+      var next = { date: d }, bad = null;
+      Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-anc]'), function (i) {
+        var raw = i.value.trim(), n = parseFloat(raw);
+        if (raw === '' || isNaN(n)) { bad = i.getAttribute('data-anc'); return; }
+        next[i.getAttribute('data-anc')] = n;
+      });
+      if (bad) { toast('Check ' + bad + ' - numbers only'); return; }
+
+      state.anchor = next;
+      save(); render(); closeOv('ovSheet'); toast('Balances set');
+    });
+    openOv('ovSheet');
+  }
+
   function openRestore() {
     sheetEl.innerHTML = head('Restore from a backup', 'Paste an export, or just its last line') +
       '<textarea id="rsText" placeholder="Paste the export here"></textarea>' +
       '<div class="note" id="rsInfo">Everything in the app now will be replaced by what is in the backup.</div>' +
-      '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
-      '<button class="btn go" id="rsGo">Check it</button></div>';
+      '<div class="btns" style="margin-bottom:10px"><button class="btn ghost" data-act="x">Close</button>' +
+      '<button class="btn go" id="rsGo">Check it</button></div>' +
+      '<div class="note" style="margin:0 0 8px">No export to paste? Put the four balances in by hand.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="bal" style="flex:1">Set the balances</button></div>';
+
+    sheetEl.querySelector('[data-act="bal"]').addEventListener('click', openBalances);
 
     /* Two steps on purpose: the first reads the paste and says what is in it,
        the second is the decision. Restoring the wrong file silently over a
@@ -2596,6 +2707,9 @@
           demo:         found.demo,
           demoSeed:     found.demoSeed
         };
+        // A backup taken after a hand-set restore carries the anchor with it;
+        // without this the pasted days would recount from zero.
+        if (found.anchor) state.anchor = found.anchor;
         HABITS.forEach(function (h) {
           if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
         });
