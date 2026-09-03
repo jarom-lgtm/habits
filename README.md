@@ -54,8 +54,13 @@ No balance is stored anywhere; each is walked out of the entries every time it
 is asked for, which is what keeps them honest. Typed balances therefore cannot
 simply be set — they seed an *anchor*, and the walk reopens on that day. The
 anchor touches no entry, and it appears in the point and minute log as
-"restored by hand" so a balance never arrives from nowhere. Clearing it puts
-the count back to running from the start dates.
+"restored by hand" so a balance never arrives from nowhere.
+
+**Confirming a balance locks it, exactly as confirming a start date does.**
+Saving is free and can be redone; confirming takes two taps and is final. A
+balance that stayed editable would not be a record but a dial — a bad week
+could always be answered by typing a kinder number. Only wiping the app, or
+pasting a backup over it, clears a confirmed balance.
 
 ## Files
 

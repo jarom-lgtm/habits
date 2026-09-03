@@ -404,7 +404,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v42';
+  var APP_VERSION = 'v43';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -621,6 +621,7 @@
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
         state.demoSeed = p.demoSeed;
         if (p.anchor) state.anchor = p.anchor;
+        if (p.anchorLocked) state.anchorLocked = true;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     if (!state.finals) state.finals = {};
@@ -815,10 +816,14 @@
      day there is nothing to fall back on, and going below zero is a miss.     */
   var HOLIDAYS_PER_YEAR = 8;
 
-  /* The most that can come out of the TH8NK in one day - one tap of Pull 3,
-     which arrives in the 8ANK as a single point. The reserve is meant to cover
-     a bad day, not to be emptied into a bad week. */
-  var PULL_MAX_PER_DAY = 3;
+  /* The most that can come OUT of the TH8NK in one day: nine, which arrives in
+     the 8ANK as three. Three taps of Pull 3. The cap is on the amount leaving
+     the reserve, not the amount landing - the reserve is what is being
+     protected, and it empties three times faster than it fills.
+
+     Deposits the other way are deliberately uncapped. Putting points away is
+     never the move that needs saving him from. */
+  var PULL_MAX_PER_DAY = 9;
 
   /* A perfect day: all eight green, nothing amber, nothing missed.
      Read straight off the entries rather than off cardState, because the JUST8
@@ -1719,7 +1724,13 @@
            bank" reads the same both ways and the two are not symmetrical: 3 out
            of the TH8NK arrives as 1, while 3 out of the 8ANK lands as 4.
            Neither needs a TH8NK day - the day only governs holidays now. */
-        '<div class="field"><label>Moving points</label>' +
+        /* The day's pulling shows on the label, not just at the moment it runs
+           out. Three taps is enough that "how much have I already taken" is a
+           real question, and finding out by being refused is finding out late. */
+        '<div class="field"><label>Moving points' +
+          ((e.thankPull || 0)
+            ? ' &middot; pulled ' + fmt(e.thankPull) + ' of ' + PULL_MAX_PER_DAY + ' today'
+            : '') + '</label>' +
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">TH8NK &rarr; 8ANK</div>' +
@@ -1958,7 +1969,8 @@
 
         if (a === 'thank3') {
           if ((e.thankPull || 0) >= PULL_MAX_PER_DAY) {
-            toast('Already pulled today - ' + PULL_MAX_PER_DAY + ' a day is the limit'); return;
+            toast('That is the day\'s limit - ' + PULL_MAX_PER_DAY + ' out, ' +
+                  (PULL_MAX_PER_DAY / 3) + ' in'); return;
           }
           if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
           e.thankPull = (e.thankPull || 0) + 3;
@@ -2623,8 +2635,36 @@
     { k: 'stopTank', label: 'Tank &middot; STOP (min)', get: stopTank }
   ];
 
+  /* Balances lock the same way a start date does, and for the same reason. A
+     balance that can be revised is not a record, it is a dial - a bad week
+     could always be answered by typing a kinder number, and the whole economy
+     would quietly become one that agrees with him. Saving is free and can be
+     redone; confirming takes two taps and is final. Only a full wipe undoes it. */
+  function anchorLocked() { return !!state.anchorLocked; }
+
+  var _armAnc = 0;
+
   function openBalances() {
     var a = state.anchor || {};
+
+    if (anchorLocked()) {
+      sheetEl.innerHTML = head('Set the balances', 'Confirmed &mdash; fixed for good') +
+        '<div class="note">These were confirmed and cannot be changed. The count runs ' +
+        'from them; only wiping the app entirely clears them.</div>' +
+        '<div class="field"><label>Balances are from the start of</label>' +
+          '<div class="note" style="margin:0">' + shortDate(a.date) +
+          ' &nbsp;&middot;&nbsp; &#128274; confirmed</div></div>' +
+        RESTORE_FIELDS.map(function (f) {
+          return '<div class="field"><label>' + f.label + '</label>' +
+            '<div class="note" style="margin:0">' + fmt(+(a[f.k] || 0)) + '</div></div>';
+        }).join('') +
+        '<div class="btns"><button class="btn ghost" data-act="back">Back</button></div>';
+      sheetEl.querySelector('[data-act="back"]').addEventListener('click', openRestore);
+      openOv('ovSheet');
+      return;
+    }
+
+    var armed = (_armAnc && Date.now() - _armAnc < 8000);
     sheetEl.innerHTML = head('Set the balances', 'When there is no export to paste') +
       '<div class="note">Enter the four numbers <b>as they stood at the start of the ' +
       'day below</b>. Everything logged from that day on is counted on top as ' +
@@ -2641,25 +2681,33 @@
       }).join('') +
       '<div class="btns" style="margin-bottom:10px">' +
         '<button class="btn go" data-act="saveanc" style="flex:1">Save balances</button></div>' +
+      '<div class="btns" style="margin-bottom:10px">' +
+        '<button class="btn ' + (armed ? 'danger' : 'ghost') + '" data-act="lockanc" style="flex:1">' +
+          (armed ? 'Tap again to fix these for good' : 'Confirm these balances') + '</button></div>' +
+      '<div class="note">A confirmed balance is the one everything counts from. Fixing it ' +
+      'means the numbers cannot be moved under the history later.</div>' +
       '<div class="btns">' +
         '<button class="btn ghost" data-act="clearanc">Clear</button>' +
         '<button class="btn ghost" data-act="back">Back</button></div>';
 
-    sheetEl.querySelector('[data-act="back"]').addEventListener('click', openRestore);
+    sheetEl.querySelector('[data-act="back"]').addEventListener('click', function () {
+      _armAnc = 0; openRestore();
+    });
 
     /* Clearing drops the anchor and lets the walk run from the start dates
-       again - the only way back if a wrong figure was saved. */
+       again - the only way back before it is confirmed. */
     sheetEl.querySelector('[data-act="clearanc"]').addEventListener('click', function () {
+      _armAnc = 0;
       delete state.anchor;
       save(); render(); closeOv('ovSheet'); toast('Balances counted from the start again');
     });
 
-    sheetEl.querySelector('[data-act="saveanc"]').addEventListener('click', function () {
+    /* Read back before either button acts, so what gets saved - or fixed - is
+       what is on the screen rather than what was last written. */
+    function readAnc() {
       var d = document.getElementById('ancDate').value.trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(parse(d).getTime())) {
-        toast('Check the date - use YYYY-MM-DD'); return;
-      }
-      if (daysBetween(parse(d), today) < 0) { toast('That date is in the future'); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(parse(d).getTime())) return { bad: 'the date' };
+      if (daysBetween(parse(d), today) < 0) return { bad: 'the date - it is in the future' };
 
       var next = { date: d }, bad = null;
       Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-anc]'), function (i) {
@@ -2667,10 +2715,30 @@
         if (raw === '' || isNaN(n)) { bad = i.getAttribute('data-anc'); return; }
         next[i.getAttribute('data-anc')] = n;
       });
-      if (bad) { toast('Check ' + bad + ' - numbers only'); return; }
+      return bad ? { bad: bad + ' - numbers only' } : { anchor: next };
+    }
 
-      state.anchor = next;
-      save(); render(); closeOv('ovSheet'); toast('Balances set');
+    sheetEl.querySelector('[data-act="saveanc"]').addEventListener('click', function () {
+      var r = readAnc();
+      if (r.bad) { toast('Check ' + r.bad); return; }
+      _armAnc = 0;
+      state.anchor = r.anchor;
+      save(); render(); closeOv('ovSheet'); toast('Balances saved - not yet confirmed');
+    });
+
+    sheetEl.querySelector('[data-act="lockanc"]').addEventListener('click', function () {
+      var r = readAnc();
+      if (r.bad) { toast('Check ' + r.bad); return; }
+      state.anchor = r.anchor;
+      if (armed) {
+        _armAnc = 0;
+        state.anchorLocked = true;
+        save(); render(); openBalances();
+        toast('Balances fixed at ' + shortDate(r.anchor.date));
+        return;
+      }
+      _armAnc = Date.now();
+      save(); openBalances();
     });
     openOv('ovSheet');
   }
@@ -2681,8 +2749,12 @@
       '<div class="note" id="rsInfo">Everything in the app now will be replaced by what is in the backup.</div>' +
       '<div class="btns" style="margin-bottom:10px"><button class="btn ghost" data-act="x">Close</button>' +
       '<button class="btn go" id="rsGo">Check it</button></div>' +
-      '<div class="note" style="margin:0 0 8px">No export to paste? Put the four balances in by hand.</div>' +
-      '<div class="btns"><button class="btn ghost" data-act="bal" style="flex:1">Set the balances</button></div>';
+      '<div class="note" style="margin:0 0 8px">' +
+        (anchorLocked()
+          ? 'The balances were set by hand and confirmed. &#128274;'
+          : 'No export to paste? Put the four balances in by hand.') + '</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="bal" style="flex:1">' +
+        (anchorLocked() ? 'See the balances' : 'Set the balances') + '</button></div>';
 
     sheetEl.querySelector('[data-act="bal"]').addEventListener('click', openBalances);
 
@@ -2707,9 +2779,12 @@
           demo:         found.demo,
           demoSeed:     found.demoSeed
         };
-        // A backup taken after a hand-set restore carries the anchor with it;
-        // without this the pasted days would recount from zero.
+        /* A backup taken after a hand-set restore carries the anchor with it,
+           lock and all; without this the pasted days would recount from zero.
+           Replacing everything is the one thing that can move a confirmed
+           balance, and it is not a quiet edit - it wipes the app first. */
         if (found.anchor) state.anchor = found.anchor;
+        state.anchorLocked = !!found.anchorLocked;
         HABITS.forEach(function (h) {
           if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
         });
