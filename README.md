@@ -52,9 +52,16 @@ Losing this happens two ways, and they do not lose the same thing.
 
 No balance is stored anywhere; each is walked out of the entries every time it
 is asked for, which is what keeps them honest. Typed balances therefore cannot
-simply be set — they seed an *anchor*, and the walk reopens on that day. The
-anchor touches no entry, and it appears in the point and minute log as
-"restored by hand" so a balance never arrives from nowhere.
+simply be set. They are stored as the **difference** between what was typed and
+what that day would otherwise have opened on, and that difference is applied on
+its day like any other movement — it appears in the point and minute log as
+"balance set by hand", so a balance never arrives from nowhere.
+
+Storing a difference rather than a figure is what lets earlier days go on
+counting. A figure would have to override everything before it to hold, which
+makes every earlier day unreachable — so filling in Monday on Tuesday would be
+recorded, reported as done, and change nothing. A difference sits on its own day
+and lets the rest of the walk carry on around it.
 
 **Confirming a balance locks it, exactly as confirming a start date does.**
 Saving is free and can be redone; confirming takes two taps and is final. A
