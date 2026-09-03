@@ -69,6 +69,21 @@ balance that stayed editable would not be a record but a dial — a bad week
 could always be answered by typing a kinder number. Only wiping the app, or
 pasting a backup over it, clears a confirmed balance.
 
+## Starting over
+
+**Start over** at the foot of the menu wipes the instance: every entry, every
+note, the finalized days, the fixed start dates, and any balance set by hand.
+The start dates return to their defaults to be entered again. Two taps, the
+second one red.
+
+The PIN is the one thing it keeps — it is not a record of anything, and it is
+what protects the screen, so removing it stays its own deliberate act on the
+PIN sheet.
+
+Wiping used to hang off the sample-data banner, which only appears when there
+*is* sample data — so a real instance, the only kind that might genuinely need
+clearing, had no way to do it at all.
+
 ## Files
 
 | File | What it is |

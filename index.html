@@ -377,6 +377,7 @@
     <button class="row" id="mLockNow"><span class="ic">&#128274;</span><span>Lock now<small>Put the PIN screen up before handing the phone over</small></span></button>
     <button class="row" id="mPin"><span class="ic">&#128273;</span><span>PIN lock<small id="mPinSub">Ask for a PIN when the app opens</small></span></button>
     <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
+    <button class="row" id="mStartOver"><span class="ic">&#9888;</span><span>Start over<small>Wipe everything and begin again</small></span></button>
   </div>
 </div>
 
@@ -404,7 +405,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v47';
+  var APP_VERSION = 'v48';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -2535,6 +2536,60 @@
       });
     });
     openOv('ovSheet');
+  });
+
+  /* ---------------- start over ----------------
+     Wiping used to hang off the sample-data banner, which only appears when
+     there IS sample data - so the one instance that might genuinely need
+     clearing, a real one, had no way to do it at all. It lives in the menu now.
+
+     It takes everything, deliberately. A clean start that quietly kept the
+     finalized days, the fixed start dates or a confirmed balance would not be a
+     clean start; it would be a new app carrying the old one's rulings, and the
+     first surprise would arrive weeks later when one of them fired against
+     history that no longer existed.
+
+     The PIN is the exception. It is not a record of anything and it is the one
+     thing here protecting the screen, so removing it is left as its own
+     deliberate act on its own sheet rather than a side effect of this one. */
+  var _armWipe = 0;
+
+  function openStartOver() {
+    var armed = (_armWipe && Date.now() - _armWipe < 8000);
+    var n = Object.keys(state.days).length;
+    sheetEl.innerHTML = head('Start over', 'Wipe everything and begin again') +
+      '<div class="note">This clears <b>' + n + ' day' + (n === 1 ? '' : 's') +
+      '</b> of entries and everything alongside them: the notes, the finalized ' +
+      'days, the fixed start dates, and any balances set by hand. The start dates ' +
+      'go back to their defaults for you to enter again.<br><br>' +
+      '<b>Your PIN is kept.</b> Remove it on the PIN lock sheet if you want that gone too.' +
+      '</div>' +
+      '<div class="warnbox">This cannot be undone. If you want the history back ' +
+      'afterwards you will need an export taken <b>before</b> you tap this.</div>' +
+      '<div class="btns" style="margin-bottom:10px">' +
+        '<button class="btn ' + (armed ? 'danger' : 'ghost') + '" data-act="wipe" style="flex:1">' +
+          (armed ? 'Tap again to wipe everything' : 'Wipe everything') + '</button></div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
+
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
+      _armWipe = 0; closeOv('ovSheet');
+    });
+    sheetEl.querySelector('[data-act="wipe"]').addEventListener('click', function () {
+      if (!armed) { _armWipe = Date.now(); openStartOver(); return; }
+      _armWipe = 0;
+      /* Rebuilt rather than emptied key by key, so anything ever added to the
+         state cannot survive by having been forgotten here. */
+      state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {} };
+      HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
+      _j8 = null; _stop = null;
+      save(); render(); closeOv('ovSheet');
+      toast('Wiped clean - set your start dates');
+    });
+    openOv('ovSheet');
+  }
+
+  document.getElementById('mStartOver').addEventListener('click', function () {
+    closeOv('ovMenu'); _armWipe = 0; openStartOver();
   });
 
   document.getElementById('mAbout').addEventListener('click', function () {
