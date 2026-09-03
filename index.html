@@ -404,7 +404,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v43';
+  var APP_VERSION = 'v44';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -868,6 +868,19 @@
     if (isNaN(parse(a.date).getTime())) return null;
     if (daysBetween(parse(a.date), today) < 0) return null;      // dated ahead of today
     return a;
+  }
+
+  /* A day earlier than the anchor sits behind where the balances begin, so
+     nothing on it can move them - that is what anchoring means, and it is not a
+     fault. The fault would be accepting a transfer there anyway: a transfer is
+     nothing BUT a balance movement, so it would be recorded, reported as done,
+     and change no number. Saying "Pulled 3, gained 1 point" while the 8ANK sits
+     still is the one thing this must never do, so those days refuse it and say
+     why. Everything else - the cups, the window, the minutes - still records,
+     because what happened is worth keeping even where it cannot be charged. */
+  function beforeAnchor(dk) {
+    var a = anchor();
+    return !!(a && dk < a.date);          // YYYY-MM-DD compares correctly as text
   }
 
   function j8() {
@@ -1757,6 +1770,16 @@
       lk.innerHTML = 'This day is <b>finalized</b>. It can be read, not changed.';
       sheetEl.insertBefore(lk, sheetEl.children[3] || null);
     }
+    /* Only on the three that touch a balance. Said before he taps, not after -
+       the whole point is that this day looks ordinary and is not. */
+    else if (beforeAnchor(dk) && (id === 'JUST8' || id === 'STOP' || id === 'FIT')) {
+      var ab = document.createElement('div');
+      ab.className = 'warnbox';
+      ab.innerHTML = 'The balances were set from <b>' + shortDate(anchor().date) +
+        '</b>, and this day is before that. What you record here is kept, but it ' +
+        'cannot move the balances, and points cannot be transferred on it.';
+      sheetEl.insertBefore(ab, sheetEl.children[3] || null);
+    }
     wireSheet(dk, id);
     openOv('ovSheet');
   }
@@ -1791,6 +1814,13 @@
   function wireSheet(dk, id) {
     var e = entry(dk, id, true);
     var locked = dayFinal(dk);
+
+    // Refused rather than accepted-and-ignored. See beforeAnchor.
+    function anchorBlocked() {
+      if (!beforeAnchor(dk)) return false;
+      toast('Balances start ' + shortDate(anchor().date) + ' - this day cannot move them');
+      return true;
+    }
 
     /* The note is read off the field before anything is written away, and the
        day only becomes a TH8NK day once it says something. */
@@ -1911,6 +1941,10 @@
           var bg = bedGrade(bedMinutesOver(e.bed));
           toast(bg ? 'M-' + bg + ' recorded' : 'Nothing counted');
           return;
+        }
+
+        if (a === 'totank' || a === 'fromtank' || a === 'thank3' || a === 'dep3') {
+          if (anchorBlocked()) return;
         }
 
         if (a === 'totank') {
