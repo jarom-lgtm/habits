@@ -404,7 +404,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v45';
+  var APP_VERSION = 'v46';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -1041,12 +1041,12 @@
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
   var TANK_UNLOCK_DAYS = 30;
 
-  /* Two missed days back to back empty the Tank. The Bank already writes its
-     debt off at a miss, which makes a single bad night survivable on purpose -
-     the Tank is the thing with real weight behind it, and two in a row is the
-     point at which it should cost something that is felt. One miss does not
-     touch it. */
-  var TANK_WIPE_MISSES = 2;
+  /* A miss empties the Tank. It used to take two back to back, on the reasoning
+     that one bad night should stay survivable - but the Bank already writes its
+     own debt off at a miss, so the day costs nothing that is felt unless the
+     Tank goes with it. Thirty clean days to open the Tank and one miss to lose
+     it is the weight the habit is supposed to carry. */
+  var TANK_WIPE_MISSES = 1;
 
   /* One movement of one balance, on one day, with the reason it happened.
      The log is written by the same two walks that produce the balances, so it
@@ -1110,13 +1110,13 @@
         bank = 0;
       }
 
-      /* The wipe is charged on the second consecutive miss and not again -
-         a Tank already emptied has nothing left to take, and a third bad day
-         should not read in the log as a second penalty. */
+      /* Charged once per run of misses and not again - a Tank already emptied
+         has nothing left to take, and a second bad day in a row should not read
+         in the log as a second penalty. */
       if (miss) {
         runMiss++;
         if (runMiss === TANK_WIPE_MISSES && tank > 0) {
-          mv(res, dk, 'Tank', -tank, TANK_WIPE_MISSES + ' misses in a row - Tank wiped');
+          mv(res, dk, 'Tank', -tank, 'Tank wiped by the miss');
           tank = 0;
         }
       } else runMiss = 0;
@@ -1567,6 +1567,12 @@
               '<button class="btn ghost" data-act="fromtank" style="width:100%">Take 1 out</button>' +
             '</div>' +
           '</div>' +
+          /* Said where the decision is made. Putting minutes in now risks all
+             of them on one bad night, and finding that out afterwards would be
+             finding it out too late to have chosen differently. */
+          (stopTank() > 0
+            ? '<div class="note" style="margin:8px 0 0">A miss empties the Tank.</div>'
+            : '') +
         '</div>' +
         '<div class="btns">' + doneBtn() + '</div>';
     }
