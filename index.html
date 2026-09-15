@@ -519,7 +519,10 @@
   /* ---------------- FIT sizing ----------------
      Each behaviour is off, -u, -uu or -U. The day's whole allowance is two
      lowercase units or one uppercase Unit, so -uu on one thing spends it all
-     just as surely as -u on two things does.                                 */
+     just as surely as -u on two things does. One unit is a green day still -
+     not a perfect one, but the tick holds. Two is the allowance spent, and
+     the card goes amber. Three or more is past it, and that is a miss - said
+     on the sheet, taken by hand, as every miss here is.                      */
   /* off -> -u -> -U -> -X. X is "I went well past it and blew the day", which
      is a miss on its own and needs no arithmetic. */
   var FIT_CYCLE = ['', 'u', 'U', 'X'];
@@ -530,11 +533,14 @@
     Object.keys(items || {}).forEach(function (k) {
       if (items[k] === 'X') blown++;
       else if (items[k] === 'U') big++;
+      else if (items[k] === 'uu') small += 2;   // M's half-hour grade: two units, not none
       else if (items[k] === 'u') small++;
     });
+    var units = small + big * 2;
     return {
-      small: small, big: big, blown: blown,
-      over: blown > 0 || (big > 1) || (big === 1 && small > 0) || (small > 2)
+      small: small, big: big, blown: blown, units: units,
+      spent: blown > 0 || units >= 2,          // allowance used up: amber
+      over:  blown > 0 || units >= 3           // past it: a miss, by hand
     };
   }
 
@@ -1067,10 +1073,13 @@
      stands for the wait. Named Bank and Tank rather than reusing the 8ANK and
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
   var TANK_UNLOCK_DAYS = 30;
+  var _armLock = 0;                              // first tap on the lock; the second within 8s does it
   /* Once the thirty are in hand the Tank can be locked again, by choice, for
-     eight days at a time. The moment of reaching it is the moment with the
-     most resolve in it, and this is a way to spend that resolve on the next
-     stretch rather than on the Tank. One tap, and it cannot be taken back. */
+     eight days. The moment of reaching it is the moment with the most resolve
+     in it, and this is a way to spend that resolve on the next stretch rather
+     than on the Tank. Offered only while the Tank is actually open - so the
+     eight have to pass before it can be offered again, and the lock cannot be
+     piled up past the point of ever opening. Two taps, and no way back. */
   var TANK_LOCK_DAYS = 8;
 
   /* Two missed days back to back empty the Tank. The Bank already writes its
@@ -1129,13 +1138,9 @@
       if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank;
                              mv(res, dk, 'Tank', -e.fromTank, 'moved to the Bank');
                              mv(res, dk, 'Bank', e.fromTank, 'from the Tank'); }
-      /* A lock is eight days from the day it was tapped, or from the end of a
-         lock already running, so a second tap stacks rather than restarts. It
-         moves no minutes, so it is not a log line - it shows on the card. */
-      if (e && e.tankLock) {
-        var base = (lockUntil && daysBetween(d, lockUntil) > 0) ? lockUntil : d;
-        lockUntil = addDays(base, TANK_LOCK_DAYS * e.tankLock);
-      }
+      /* A lock is eight days from the day it was tapped. It moves no minutes,
+         so it is not a log line - it shows on the card. */
+      if (e && e.tankLock) lockUntil = addDays(d, TANK_LOCK_DAYS);
 
       var miss = bank < 0;
       res.misses[dk] = miss;
@@ -1219,7 +1224,7 @@
     switch (id) {
       case 'H2Only':   return e.logged ? 'ok' : '';
       case 'STOP':     return e.slip ? 'warn' : (e.logged ? 'ok' : '');
-      case 'FIT':      return (e.items && Object.keys(e.items).length) ? 'warn' : (e.logged ? 'ok' : '');
+      case 'FIT':      return fitOver(e.items).spent ? 'warn' : (e.logged ? 'ok' : '');
       case 'JUST8':    return (e.eatStart && e.eatEnd) ? 'ok' : (e.eatStart || e.cups || e.cupS ? 'warn' : '');
       case 'WERKOUTS': return e.done ? 'ok' : '';   // anything short of a full one is a miss, not amber
       default:         return e.done ? 'ok' : '';
@@ -1582,6 +1587,7 @@
     }
 
     else if (id === 'STOP') {
+      var lockArmed = (_armLock && Date.now() - _armLock < 8000);
       html = head('STOP', when) +
         /* Clean days are counted separately from the streak and cannot touch
            it. A slip the Bank absorbs resets this to zero while the streak
@@ -1619,14 +1625,14 @@
               '<button class="btn ghost" data-act="fromtank" style="width:100%">Take 1 out</button>' +
             '</div>' +
           '</div>' +
-          /* Offered only once the thirty are reached, and phrased as what it
-             does rather than as a setting, because it is a one-way act. */
-          (tankReached()
-            ? '<div class="btns" style="margin-top:8px"><button class="btn ghost" data-act="tanklock" style="flex:1">' +
-              'Lock the Tank ' + TANK_LOCK_DAYS + ' more days</button></div>' +
-              ((e.tankLock || 0)
-                ? '<div class="note" style="margin:8px 0 0">Locked <b>' + (e.tankLock * TANK_LOCK_DAYS) + '</b> days today. This cannot be taken back.</div>'
-                : '')
+          /* Offered only while the Tank is open, and armed like the other
+             one-way acts: the first tap says what it will do, the second does
+             it. A slip of the thumb here would cost eight days. */
+          (tankOpen()
+            ? '<div class="btns" style="margin-top:8px"><button class="btn ' + (lockArmed ? 'danger' : 'ghost') + '" data-act="tanklock" style="flex:1">' +
+              (lockArmed
+                ? 'Tap again to lock it until ' + shortDate(key(addDays(today, TANK_LOCK_DAYS))) + ' &mdash; no way back'
+                : 'Lock the Tank ' + TANK_LOCK_DAYS + ' more days') + '</button></div>'
             : '') +
           /* Said where the decision is made, and only when there is something
              in there to lose. The rule is easy to forget precisely because it
@@ -2028,8 +2034,10 @@
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
         }
         if (a === 'tanklock') {
-          if (!tankReached()) { toast('Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days'); return; }
-          e.tankLock = (e.tankLock || 0) + 1;
+          if (!tankOpen()) { toast('The Tank is not open'); return; }
+          if (!(_armLock && Date.now() - _armLock < 8000)) { _armLock = Date.now(); openSheet(dk, id); return; }
+          _armLock = 0;
+          e.tankLock = 1;
           e.logged = true; commit(true);
           toast('Tank locked until ' + shortDate(stop().lockUntil)); return;
         }
