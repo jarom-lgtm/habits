@@ -522,7 +522,11 @@
      just as surely as -u on two things does. One unit is a green day still -
      not a perfect one, but the tick holds. Two is the allowance spent, and
      the card goes amber. Three or more is past it, and that is a miss - said
-     on the sheet, taken by hand, as every miss here is.                      */
+     on the sheet, taken by hand, as every miss here is.
+
+     T is the exception: any mark on it at all takes the green. It still
+     counts its units like the rest, so T-U alone is amber and T-U with
+     anything else is past the allowance.                                    */
   /* off -> -u -> -U -> -X. X is "I went well past it and blew the day", which
      is a miss on its own and needs no arithmetic. */
   var FIT_CYCLE = ['', 'u', 'U', 'X'];
@@ -539,8 +543,8 @@
     var units = small + big * 2;
     return {
       small: small, big: big, blown: blown, units: units,
-      spent: blown > 0 || units >= 2,          // allowance used up: amber
-      over:  blown > 0 || units >= 3           // past it: a miss, by hand
+      spent: blown > 0 || units >= 2 || !!(items && items.T),    // allowance used up, or T touched: amber
+      over:  blown > 0 || units >= 3                              // past it: a miss, by hand
     };
   }
 
