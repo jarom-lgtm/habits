@@ -1157,6 +1157,15 @@
     return (r % 1 === 0) ? String(r) : String(r);
   }
 
+  /* The two reserves are kept to the cent but never shown past a ceiling.
+     Knowing there is "at least 18" is enough to act on; knowing there is 300
+     is an invitation to spend it. Every move still shows in the log, so the
+     real figure can be worked out - it just cannot be read off the screen. */
+  var THANK_VEIL = 18, TANK_VEIL = 11;
+  function veil(n, cap) { return n > cap ? cap + '+' : fmt(n); }
+  function fmtThank() { return veil(thank(), THANK_VEIL); }
+  function fmtTank()  { return veil(stopTank(), TANK_VEIL); }
+
   /* Three states, so a glance down the list is readable:
        ok    - clean, or done as intended
        warn  - recorded something that cost you, but the streak still holds
@@ -1537,7 +1546,7 @@
         /* Clean days are counted separately from the streak and cannot touch
            it. A slip the Bank absorbs resets this to zero while the streak
            carries on untouched - only a Bank below zero breaks that. */
-        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmt(stopTank()) + ' min</b>' +
+        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmtTank() + ' min</b>' +
           ' &nbsp;&middot;&nbsp; <b>' + stop().cleanRun + '</b> clean day' + (stop().cleanRun === 1 ? '' : 's') + '</div>' +
         // A slip is not a miss - the bank absorbs it. Calling it one was wrong.
         '<div class="btns" style="margin-bottom:14px">' +
@@ -1646,7 +1655,7 @@
         /* The TH8NK balance only appears on a day it can actually be reached.
            A reserve you cannot touch is not information, it is temptation. */
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
-          (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmt(thank()) + '</b>' : '') +
+          (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmtThank() + '</b>' : '') +
           ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(dayPointCost(dk)) + ' pt</b>' +
           (fitPtsOn(dk)
             ? '<span style="opacity:.65"> (' + fmt(j8DayCost(e)) + ' here + ' + fmt(fitPtsOn(dk)) + ' covering FIT)</span>'
@@ -2357,8 +2366,8 @@
     }).join('');
 
     sheetEl.innerHTML = headX('Point and minute log', 'A day at a time &mdash; tap one to open it') +
-      '<div class="note">Now &mdash; 8ANK <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK <b>' + fmt(thank()) +
-        '</b> &nbsp;&middot;&nbsp; Bank <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank <b>' + fmt(stopTank()) + ' min</b></div>' +
+      '<div class="note">Now &mdash; 8ANK <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK <b>' + fmtThank() +
+        '</b> &nbsp;&middot;&nbsp; Bank <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank <b>' + fmtTank() + ' min</b></div>' +
       (body || '<div class="note">Nothing has moved yet.</div>') +
       (keys.length > shown.length
         ? '<div class="note">Showing the most recent ' + shown.length + ' days with movement, of ' + keys.length + '.</div>'
@@ -2612,8 +2621,8 @@
     var o = [];
     o.push('CHECK EXPORT - ' + key(today));
     o.push('');
-    o.push('BANKS   8ANK ' + fmt(bank8()) + '   TH8NK ' + fmt(thank()) +
-           '   STOP bank ' + fmt(stopBank()) + ' min   tank ' + fmt(stopTank()) + ' min');
+    o.push('BANKS   8ANK ' + fmt(bank8()) + '   TH8NK ' + fmtThank() +
+           '   STOP bank ' + fmt(stopBank()) + ' min   tank ' + fmtTank() + ' min');
 
     /* Where each one stands, and nothing more. The run-by-run history that used
        to follow was the longest section in the file and the least read - it is
@@ -2722,9 +2731,9 @@
      start dates re-entered by hand. Neither replaces the other. */
   var RESTORE_FIELDS = [
     { k: 'bank8',    label: '8ANK &middot; JUST8',      get: bank8 },
-    { k: 'thank',    label: 'TH8NK &middot; JUST8',     get: thank },
+    { k: 'thank',    label: 'TH8NK &middot; JUST8',     get: thank,    veil: THANK_VEIL },
     { k: 'stopBank', label: 'Bank &middot; STOP (min)', get: stopBank },
-    { k: 'stopTank', label: 'Tank &middot; STOP (min)', get: stopTank }
+    { k: 'stopTank', label: 'Tank &middot; STOP (min)', get: stopTank, veil: TANK_VEIL }
   ];
 
   /* Balances lock the same way a start date does, and for the same reason. A
@@ -2766,10 +2775,15 @@
         '<input type="text" id="ancDate" value="' + escAttr(a.date || key(today)) +
         '" placeholder="YYYY-MM-DD" autocomplete="off"></div>' +
       RESTORE_FIELDS.map(function (f) {
-        var v = (a[f.k] !== undefined && a[f.k] !== null) ? a[f.k] : f.get();
+        /* A balance he typed himself is his to see again. A live one past the
+           veil is not pre-filled - the box comes up empty with the ceiling as
+           its hint, and the save already refuses a blank, so nothing lands
+           without being typed on purpose. */
+        var own = (a[f.k] !== undefined && a[f.k] !== null), v = own ? a[f.k] : f.get();
+        var hidden = !own && f.veil && v > f.veil;
         return '<div class="field"><label>' + f.label + '</label>' +
-          '<input type="text" inputmode="decimal" data-anc="' + f.k + '" value="' + escAttr(fmt(v)) +
-          '" autocomplete="off"></div>';
+          '<input type="text" inputmode="decimal" data-anc="' + f.k + '" value="' + (hidden ? '' : escAttr(fmt(v))) +
+          '"' + (hidden ? ' placeholder="' + f.veil + '+"' : '') + ' autocomplete="off"></div>';
       }).join('') +
       '<div class="btns" style="margin-bottom:10px">' +
         '<button class="btn go" data-act="saveanc" style="flex:1">Save balances</button></div>' +
