@@ -1,6 +1,6 @@
 /* CHECK - offline service worker.
    Bump CACHE whenever a file below changes, so phones pick the update up. */
-var CACHE = 'check-v63';
+var CACHE = 'check-v64';
 
 /* './' is deliberately NOT listed. Caching both './' and './index.html' stores
    the same page under two keys that drift apart, and the stale one wins - which

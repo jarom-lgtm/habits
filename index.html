@@ -227,6 +227,13 @@
   .timeedit { display: none; height: 44px; }
   .setcol.open .btn.tiny { display: none; }
   .setcol.open .timeedit { display: block; }
+  /* JUST8's by-hand time: three plain dropdowns and a confirm, no clock wheel.
+     The wheel reported a value the instant it moved, and with the start
+     one-way that was a trap. Nothing here lands until the confirm is tapped. */
+  .tpick { display: none; margin-top: 8px; }
+  .tpick.open { display: block; }
+  .tprow { display: flex; gap: 8px; }
+  .tprow select { flex: 1; min-width: 0; padding-right: 30px; text-align: center; }
 
   .note { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 10px 0 14px; }
   .note b { color: var(--text); font-weight: 600; }
@@ -1796,14 +1803,17 @@
           '<div class="btns" style="margin-top:0">' +
             (e.eatStart
               ? '<div class="setcol"></div>'
-              : '<div class="setcol">' +
-                  '<button class="btn tiny" data-act="settime">Set time</button>' +
-                  '<input type="time" class="timeedit" data-field="eatStart" value="">' +
-                '</div>') +
-            '<div class="setcol">' +
-              '<button class="btn tiny" data-act="settime">Set time</button>' +
-              '<input type="time" class="timeedit" data-field="eatEnd" value="' + (e.eatEnd || '') + '">' +
+              : '<div class="setcol"><button class="btn tiny" data-act="tpick" data-field="eatStart">Set time</button></div>') +
+            '<div class="setcol"><button class="btn tiny" data-act="tpick" data-field="eatEnd">Set time</button></div>' +
+          '</div>' +
+          '<div class="tpick" id="tpick">' +
+            '<div class="tprow">' +
+              '<select data-tp="h">' + [1,2,3,4,5,6,7,8,9,10,11,12].map(function (h) { return '<option value="' + h + '">' + h + '</option>'; }).join('') + '</select>' +
+              '<select data-tp="m">' + Array.apply(null, Array(60)).map(function (_, m) { var t = (m < 10 ? '0' : '') + m; return '<option value="' + t + '">' + t + '</option>'; }).join('') + '</select>' +
+              '<select data-tp="ap"><option value="AM">AM</option><option value="PM">PM</option></select>' +
             '</div>' +
+            '<button class="btn go" data-act="tpok" style="width:100%;margin-top:8px">Tap to confirm</button>' +
+            '<button class="btn ghost" data-act="tpcancel" style="width:100%;margin-top:6px">Cancel</button>' +
           '</div>' +
           (e.eatStart && e.eatEnd
             ? '<div class="note" style="margin:10px 0 0">Window <b>' + fmt(Math.round(h8 * 4) / 4) + ' h</b>' +
@@ -2119,6 +2129,23 @@
           }
           return;
         }
+        /* The JUST8 picker. Open it on the current value, or the clock if
+           there is none; the confirm button says what it is about to do. */
+        if (a === 'tpick') {
+          var tp = document.getElementById('tpick'), f0 = b.getAttribute('data-field');
+          tp.setAttribute('data-field', f0);
+          var cur = (e[f0] || nowHM()).split(':'), hh = +cur[0], mm = cur[1];
+          tp.querySelector('[data-tp="ap"]').value = hh >= 12 ? 'PM' : 'AM';
+          tp.querySelector('[data-tp="h"]').value  = String(hh % 12 === 0 ? 12 : hh % 12);
+          tp.querySelector('[data-tp="m"]').value  = mm;
+          tpLabel(); tp.classList.add('open'); return;
+        }
+        if (a === 'tpcancel') { document.getElementById('tpick').classList.remove('open'); return; }
+        if (a === 'tpok') {
+          var f1 = document.getElementById('tpick').getAttribute('data-field'), v1 = tpValue();
+          if (f1 === 'eatStart' && e.eatStart) { toast('Already started at ' + e.eatStart); return; }
+          e[f1] = v1; commit(true); return;
+        }
         if (a === 'eatstart') {
           // One-way. The window opened when it opened; letting it be unclicked
           // would quietly rewrite the day.
@@ -2160,6 +2187,23 @@
           commit(true); toast('Deposited 3, landed as 4'); return;
         }
       });
+    });
+
+    function tpValue() {
+      var tp = document.getElementById('tpick');
+      var h = +tp.querySelector('[data-tp="h"]').value, m = tp.querySelector('[data-tp="m"]').value, ap = tp.querySelector('[data-tp="ap"]').value;
+      var hh = (h % 12) + (ap === 'PM' ? 12 : 0);
+      return (hh < 10 ? '0' : '') + hh + ':' + m;
+    }
+    function tpLabel() {
+      var tp = document.getElementById('tpick');
+      if (!tp) return;
+      var f = tp.getAttribute('data-field');
+      tp.querySelector('[data-act="tpok"]').textContent =
+        'Set ' + (f === 'eatStart' ? 'start' : 'stop') + ' to ' + tpValue() + ' — tap to confirm';
+    }
+    Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-tp]'), function (sel) {
+      sel.addEventListener('change', tpLabel);
     });
 
     /* Written on change rather than on every keystroke, so a half-typed hour
