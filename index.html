@@ -561,8 +561,9 @@
 
   /* M is stamped rather than judged by eye: the time the phone goes down
      decides its own size. Under half an hour past 12 is -u, under the
-     hour -uu, an hour or more is -U and starts costing 8ANK points at one an
-     hour - M being the only behaviour allowed to reach for them. */
+     hour -uu, an hour or more is -U. The -U pays for that first hour; what
+     runs past 1 costs 8ANK points at one an hour - M being the only
+     behaviour allowed to reach for them. */
   function bedMinutesOver(hm) {
     if (!hm) return null;
     var p = hm.split(':'), h = +p[0], m = +p[1];
@@ -575,12 +576,13 @@
     if (mins < 60) return 'uu';
     return 'U';
   }
-  // A quarter point per quarter hour past the hour, rather than a whole point
-  // for any part of one. M is charged at a point an hour; the eating window
-  // runs at half that rate, so the two no longer share a scale.
+  // A quarter point per quarter hour past 1, rather than a whole point for
+  // any part of one - so 2:30 is 1.5, not 2.5. M is charged at a point an
+  // hour; the eating window runs at half that rate, so the two no longer
+  // share a scale.
   function bedPoints(mins) {
-    if (mins === null || mins < 60) return 0;
-    return Math.ceil((mins / 60) * 4) / 4;
+    if (mins === null || mins <= 60) return 0;
+    return Math.ceil(((mins - 60) / 60) * 4) / 4;
   }
 
   /* The time decides the grade and the points, and nothing else does. There
@@ -830,8 +832,11 @@
   /* The FIT cover is paid out of the same 8ANK as the cups and the hours, so a
      day's cost is one number, not two. The balance always charged both; it was
      only the line on the JUST8 sheet that left FIT out, which made a correct
-     balance look like an arithmetic error. Both now read from here. */
-  function fitPtsOn(dk) { var f = get(dk, 'FIT'); return (f && f.mPts) ? f.mPts : 0; }
+     balance look like an arithmetic error. Both now read from here, and from
+     the stamped time rather than a figure stored beside it - so a change to
+     what a late night costs reaches every night on record, the way every
+     other rule here does. */
+  function fitPtsOn(dk) { var f = get(dk, 'FIT'); return (f && f.bed) ? bedPoints(bedMinutesOver(f.bed)) : 0; }
   function dayPointCost(dk) { return j8DayCost(get(dk, 'JUST8')) + fitPtsOn(dk);
   }
 
