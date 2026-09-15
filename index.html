@@ -328,11 +328,11 @@
      open selects every .lock, and this screen sharing that class put it on
      top of the pad on every locked phone - nothing wiped, just covered. */
   .dead { display: none; }
-  html.dead .dead { display: flex; position: fixed; inset: 0; z-index: 100; background: var(--bg);
+  html.finished .dead { display: flex; position: fixed; inset: 0; z-index: 100; background: var(--bg);
     flex-direction: column; align-items: center; justify-content: center;
     padding: 24px 24px calc(24px + env(safe-area-inset-bottom)); }
-  html.dead body > header, html.dead body > main,
-  html.dead body > .overlay, html.dead #lockScreen { display: none !important; }
+  html.finished body > header, html.finished body > main,
+  html.finished body > .overlay, html.finished #lockScreen { display: none !important; }
   .dead textarea { width: 100%; max-width: 420px; height: 48vh; margin: 0 0 14px; }
   .dead .btns { width: 100%; max-width: 420px; }
 
@@ -969,7 +969,7 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {}, opening: {}, log: {} };
+    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.JUST8);
     var bank = 0, th = 0;
     var anc = anchor();
@@ -1077,6 +1077,7 @@
          a rescue he did not ask for is a decision taken away from him. */
 
       res.misses[dk] = (bank < 0);                // nothing left to reach for
+      res.closing[dk] = { bank: bank, th: th };
       d = addDays(d, 1);
     }
 
@@ -1088,6 +1089,11 @@
 
   function bank8() { return j8().bank; }
   function thank()  { return j8().thank; }
+  /* What a given day closed on. The transfer guards read these rather than
+     today's closing balance: a move is checked against the day it lands on,
+     because that is the day it can push below zero. */
+  function bank8On(dk) { var c = j8().closing[dk]; return c ? c.bank : 0; }
+  function thankOn(dk) { var c = j8().closing[dk]; return c ? c.th   : 0; }
 
   function holidayNote() {
     var used = j8().holidaysUsed[today.getFullYear()] || 0;
@@ -1152,7 +1158,7 @@
 
   function stop() {
     if (_stop) return _stop;
-    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, misses: {}, opening: {}, log: {} };
+    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, misses: {}, short: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.STOP);
     var bank = 0, tank = 0, clean = 0, lockUntil = null;
     var anc = anchor();
@@ -1193,6 +1199,7 @@
 
       var miss = bank < 0;
       res.misses[dk] = miss;
+      if (miss) res.short[dk] = -bank;             // how far under, before the write-off
 
       /* The miss IS the penalty, so the debt is written off with it and the
          next day opens at zero. Carrying a negative forward charged the same
@@ -1214,6 +1221,7 @@
         }
       } else runMiss = 0;
 
+      res.closing[dk] = { bank: bank, tank: tank };
       d = addDays(d, 1);
     }
     res.bank      = Math.round(bank * 100) / 100;
@@ -1226,6 +1234,8 @@
 
   function stopBank()  { return stop().bank; }
   function stopTank()  { return stop().tank; }
+  function stopBankOn(dk) { var c = stop().closing[dk]; return c ? c.bank : 0; }
+  function stopTankOn(dk) { var c = stop().closing[dk]; return c ? c.tank : 0; }
   function tankReached() { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
   function tankOpen()  { return tankReached() && !stop().lockUntil; }
 
@@ -2072,7 +2082,7 @@
         }
 
         if (a === 'totank') {
-          if (stopBank() < 1) { toast('Nothing in the Bank to move'); return; }
+          if (stopBankOn(dk) < 1) { toast('Nothing in the Bank to move'); return; }
           e.toTank = (e.toTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min into the Tank'); return;
         }
@@ -2083,7 +2093,7 @@
               : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
             return;
           }
-          if (stopTank() < 1) { toast('Nothing in the Tank'); return; }
+          if (stopTankOn(dk) < 1) { toast('Nothing in the Tank'); return; }
           e.fromTank = (e.fromTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
         }
@@ -2140,12 +2150,12 @@
             toast('That is the day\'s limit - ' + PULL_MAX_PER_DAY + ' out, ' +
                   (PULL_MAX_PER_DAY / 3) + ' in'); return;
           }
-          if (thank() < 3) { toast('Not enough in the TH8NK'); return; }
+          if (thankOn(dk) < 3) { toast('Not enough in the TH8NK'); return; }
           e.thankPull = (e.thankPull || 0) + 3;
           commit(true); toast('Pulled 3, gained 1 point'); return;
         }
         if (a === 'dep3') {
-          if (bank8() < 3) { toast('Need 3 in the 8ANK'); return; }
+          if (bank8On(dk) < 3) { toast('Need 3 in the 8ANK'); return; }
           e.thankDep = (e.thankDep || 0) + 3;
           commit(true); toast('Deposited 3, landed as 4'); return;
         }
@@ -2843,7 +2853,7 @@
 
   function showDead() {
     document.getElementById('deadText').value = state.closing || '';
-    document.documentElement.classList.add('dead');
+    document.documentElement.classList.add('finished');
   }
   document.getElementById('deadCopy').addEventListener('click', function () { copyText('deadText'); });
 
@@ -2961,6 +2971,22 @@
         stopBank: next.stopBank - op.stopBank,
         stopTank: next.stopTank - op.stopTank
       };
+
+      /* The figure is "as it stood at the start of the day", and whatever is
+         already logged on that day lands on top of it. On a fresh install the
+         balances read in the thousands until they are set, so minutes moved
+         before this sheet was filled in were allowed - and a small figure typed
+         afterwards would land underneath them, close the day below zero, and
+         leave a miss that a one-way transfer cannot undo. Refused here, with
+         the number that would work, rather than saved and discovered. */
+      var keep = state.anchor;
+      state.anchor = next; _j8 = null; _stop = null;
+      var shortJ = j8().misses[d], shortS = stop().misses[d];
+      var needJ = shortJ ? next.bank8 - j8().closing[d].bank : 0;
+      var needS = shortS ? next.stopBank + stop().short[d] : 0;
+      state.anchor = keep; _j8 = null; _stop = null;
+      if (shortJ) return { bad: 'the 8ANK - with what is already logged on ' + shortDate(d) + ' it ends below zero and the day is a miss. At least ' + fmt(needJ) + ' would hold' };
+      if (shortS) return { bad: 'the Bank - with what is already logged on ' + shortDate(d) + ' it ends below zero and the day is a miss. At least ' + fmt(needS) + ' would hold' };
       return { anchor: next };
     }
 
