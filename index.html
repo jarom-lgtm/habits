@@ -324,16 +324,20 @@
 
   /* A wiped copy is finished. It shows the closing numbers and nothing else,
      until the app is deleted and installed again from the link. */
-  html.dead .lock.dead { display: flex; position: fixed; inset: 0; z-index: 100; background: var(--bg);
+  /* Its own class, NOT .lock: the rule that puts the PIN pad up on a cold
+     open selects every .lock, and this screen sharing that class put it on
+     top of the pad on every locked phone - nothing wiped, just covered. */
+  .dead { display: none; }
+  html.dead .dead { display: flex; position: fixed; inset: 0; z-index: 100; background: var(--bg);
     flex-direction: column; align-items: center; justify-content: center;
     padding: 24px 24px calc(24px + env(safe-area-inset-bottom)); }
   html.dead body > header, html.dead body > main,
   html.dead body > .overlay, html.dead #lockScreen { display: none !important; }
-  .lock.dead textarea { width: 100%; max-width: 420px; height: 48vh; margin: 0 0 14px; }
-  .lock.dead .btns { width: 100%; max-width: 420px; }
+  .dead textarea { width: 100%; max-width: 420px; height: 48vh; margin: 0 0 14px; }
+  .dead .btns { width: 100%; max-width: 420px; }
 
-  .lock .lockttl { font-size: 17px; font-weight: 650; margin-bottom: 5px; }
-  .lock .locksub {
+  .lock .lockttl, .dead .lockttl { font-size: 17px; font-weight: 650; margin-bottom: 5px; }
+  .lock .locksub, .dead .locksub {
     font-size: 12.5px; color: var(--dim); margin-bottom: 26px;
     min-height: 32px; max-width: 290px; text-align: center; line-height: 1.35;
   }
@@ -399,7 +403,7 @@
   </div>
 </div>
 
-<div class="lock dead" id="deadScreen">
+<div class="dead" id="deadScreen">
   <div class="lockttl">This copy is finished</div>
   <div class="locksub">Copy the closing numbers below. Then delete CHECK from the home screen and install it again from the link to begin fresh. Nothing here can be changed.</div>
   <textarea id="deadText" readonly></textarea>
