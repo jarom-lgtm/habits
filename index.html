@@ -947,6 +947,19 @@
       var e = get(dk, 'JUST8');
       var yr = d.getFullYear();
 
+      /* Same rule the Bank on S has always had: the miss IS the penalty, so
+         the shortfall is written off with it and the next day opens at zero.
+         Carried forward, one heavy day charged itself again every morning
+         until it had been earned back - which read as a fortnight of failures
+         for a single evening. The write-off lands here, at the head of the
+         NEXT day, rather than at the foot of the day it happened on: that way
+         the day that went short actually reads short - "-3", in red - instead
+         of closing on a tidy 0 that looked like nothing had happened. */
+      if (bank < 0) {
+        mv(res, dk, '8ANK', -bank, 'shortfall from the day before, written off with the miss');
+        bank = 0;
+      }
+
       /* What the day opened on, before anything of its own lands. Only used to
          work out a correction when balances are set by hand, but it has to be
          captured here because that is the moment it is true. */
@@ -1026,17 +1039,6 @@
          a rescue he did not ask for is a decision taken away from him. */
 
       res.misses[dk] = (bank < 0);                // nothing left to reach for
-
-      /* Same rule the Bank on S has always had: the miss IS the penalty, so
-         the shortfall is written off with it and the next day opens at zero.
-         Carried forward, one heavy day charged itself again every morning
-         until it had been earned back - which read as a fortnight of failures
-         for a single evening, and made the balance a thing to fear rather than
-         a thing to spend. */
-      if (bank < 0) {
-        mv(res, dk, '8ANK', -bank, 'shortfall written off with the miss');
-        bank = 0;
-      }
       d = addDays(d, 1);
     }
 
@@ -1728,7 +1730,7 @@
             : '') + '</div>' +
         (bank8() < 0
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
-            'cover it from the TH8NK on a TH8NK day, or the day is a miss.</div>'
+            'pull from the TH8NK to cover it, up to ' + PULL_MAX_PER_DAY + ' out a day, or the day is a miss.</div>'
           : '') +
         '<div class="field"><label>Eating window &mdash; 1 pt per 2 h past 8</label>' +
           '<div class="btns" style="margin-bottom:8px">' +
