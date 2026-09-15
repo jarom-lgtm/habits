@@ -1730,12 +1730,17 @@
           '</div>' +
           /* The stamp above is for when the phone is in hand at the time, and
              often it is not - the meal starts and the app gets opened an hour
-             later. Either end can be set by hand rather than lost. */
+             later. Either end can be set by hand rather than lost. The start
+             is one-way whichever way it was set: once it is in, the box that
+             could move it is gone, and only the empty column keeps the end's
+             box in its place. */
           '<div class="btns" style="margin-top:0">' +
-            '<div class="setcol">' +
-              '<button class="btn tiny" data-act="settime">Set time</button>' +
-              '<input type="time" class="timeedit" data-field="eatStart" value="' + (e.eatStart || '') + '">' +
-            '</div>' +
+            (e.eatStart
+              ? '<div class="setcol"></div>'
+              : '<div class="setcol">' +
+                  '<button class="btn tiny" data-act="settime">Set time</button>' +
+                  '<input type="time" class="timeedit" data-field="eatStart" value="">' +
+                '</div>') +
             '<div class="setcol">' +
               '<button class="btn tiny" data-act="settime">Set time</button>' +
               '<input type="time" class="timeedit" data-field="eatEnd" value="' + (e.eatEnd || '') + '">' +
@@ -2107,6 +2112,7 @@
         var f = t.getAttribute('data-field');
         /* bed is not a plain field - the time it is set to decides M's grade
            and what it costs, exactly as the stamp does. */
+        if (f === 'eatStart' && e.eatStart) { toast('Already started at ' + e.eatStart); return; }
         if (f === 'bed') applyBed(e, t.value); else e[f] = t.value;
         commit(true);
       });
