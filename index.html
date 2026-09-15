@@ -372,7 +372,7 @@
     <button class="row" id="mNotes"><span class="ic">&#8599;</span><span>Notes<small>Every note you have written, one page of text</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
     <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point and minute log<small>Every movement, earned and used, one timeline</small></span></button>
-    <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
+    <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Start dates and history<small>When each one began, and what came before this copy</small></span></button>
     <button class="row" id="mPin"><span class="ic">&#128273;</span><span>PIN lock<small id="mPinSub">Ask for a PIN when the app opens</small></span></button>
   </div>
 </div>
@@ -481,15 +481,15 @@
   var WERK  = ['W', 'E', 'R', 'K', 'O', 'U', 'T', 'S'];
   var FITB  = ['M', 'T', 'W', 'TH', 'F'];
 
-  /* Eight a week, spent down, and not carried over - an unused allowance is
-     not savings, it is a week that did not need it.
+  /* Twenty-four a week, spent down, and not carried over - an unused
+     allowance is not savings, it is a week that did not need it.
 
      Nothing happens when it reaches nought. It does not charge a point, it
      does not set a chip, it does not colour the card: the count exists to say
      when the free ones are gone, and what to do about the next hair is a
      decision rather than an arithmetic consequence. TH is where those get
      recorded, by hand, the way everything else that costs something is. */
-  var HAIRS_PER_WEEK = 8;
+  var HAIRS_PER_WEEK = 24;
 
   /* A full session is the target and also the ceiling - going longer is common
      but not worth tracking, so the stepper opens at a full one and is walked
@@ -599,7 +599,7 @@
     RAK: '2026-08-30', JUST8: '2026-08-30', STOP: '2026-08-30', FIT: '2026-08-30'
   };
 
-  var state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {} };
+  var state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
   // Cached results of the J and S walks; cleared on every write.
   // Cached result of the JUST8 pass; cleared on every write.
   var _j8 = null, _stop = null;
@@ -614,6 +614,7 @@
         state.finals = p.finals || {};
         state.startsLocked = p.startsLocked || {};
         state.dayNotes = p.dayNotes || {};
+        state.prior  = p.prior || {};
         state.demo   = !!p.demo;
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
         state.demoSeed = p.demoSeed;
@@ -624,6 +625,7 @@
     if (!state.finals) state.finals = {};
     if (!state.startsLocked) state.startsLocked = {};
     if (!state.dayNotes) state.dayNotes = {};
+    if (!state.prior) state.prior = {};
     HABITS.forEach(function (h) {
       if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
     });
@@ -709,8 +711,26 @@
     return !!e.miss;
   }
 
+  /* What came before this copy of the app. A fresh install after a wipe or a
+     new phone knows nothing of the years before it, so the three things worth
+     carrying across are typed in by hand beside the start date: the day the
+     current run began, how many misses there were, and the longest run. The
+     walk starts at the "since" date and the two counts are added on top of
+     what this copy records - nothing before "since" is invented. */
+  function prior(id) { return (state.prior && state.prior[id]) || {}; }
+  function runFrom(id) {
+    var start = parse(state.starts[id]), p = prior(id);
+    if (p.since && /^\d{4}-\d{2}-\d{2}$/.test(p.since)) {
+      var d = parse(p.since);
+      if (!isNaN(d.getTime()) && daysBetween(start, d) > 0) return d;
+    }
+    return start;
+  }
+  function priorMisses(id) { return Math.max(0, Math.floor(+prior(id).misses || 0)); }
+  function priorBest(id)   { return Math.max(0, Math.floor(+prior(id).best   || 0)); }
+
   function lastMiss(id) {
-    var start = parse(state.starts[id]);
+    var start = runFrom(id);
     var probe = today;
     while (daysBetween(start, probe) >= 0) {
       if (missedOn(key(probe), id)) return probe;
@@ -725,7 +745,7 @@
      whole thing began. Eight years of history should survive one bad Tuesday. */
   function streakSegments(id) {
     var out = [];
-    var start = parse(state.starts[id]);
+    var start = runFrom(id);
     var n = daysBetween(start, today);
     if (n < 0) return out;
 
@@ -747,10 +767,20 @@
   }
 
   function streak(id) {
-    var start = parse(state.starts[id]);
-    if (daysBetween(start, today) < 0) return -1;         // hasn't begun yet
+    if (daysBetween(parse(state.starts[id]), today) < 0) return -1;   // hasn't begun yet
+    var start = runFrom(id);
     var m = lastMiss(id);
     return m ? daysBetween(m, today) : daysBetween(start, today) + 1;
+  }
+
+  /* The figures the Streaks sheet and the closing numbers both use, with what
+     was carried across counted in. */
+  function streakFacts(id) {
+    var segs = segsOf(id);
+    var cur  = segs.filter(function (x) { return x.current; })[0];
+    var best = segs.reduce(function (m, x) { return Math.max(m, x.days); }, priorBest(id));
+    var misses = segs.filter(function (x) { return !x.current; }).length + priorMisses(id);
+    return { cur: cur ? cur.days : 0, since: cur ? cur.from : null, best: best, misses: misses };
   }
 
   /* ---------------- JUST8 points ---------------- */
@@ -1037,6 +1067,11 @@
      stands for the wait. Named Bank and Tank rather than reusing the 8ANK and
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
   var TANK_UNLOCK_DAYS = 30;
+  /* Once the thirty are in hand the Tank can be locked again, by choice, for
+     eight days at a time. The moment of reaching it is the moment with the
+     most resolve in it, and this is a way to spend that resolve on the next
+     stretch rather than on the Tank. One tap, and it cannot be taken back. */
+  var TANK_LOCK_DAYS = 8;
 
   /* Two missed days back to back empty the Tank. The Bank already writes its
      debt off at a miss, which makes a single bad night survivable on purpose -
@@ -1059,9 +1094,9 @@
 
   function stop() {
     if (_stop) return _stop;
-    var res = { bank: 0, tank: 0, cleanRun: 0, misses: {}, opening: {}, log: {} };
+    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, misses: {}, opening: {}, log: {} };
     var start = parse(state.starts.STOP);
-    var bank = 0, tank = 0, clean = 0;
+    var bank = 0, tank = 0, clean = 0, lockUntil = null;
     var anc = anchor();
 
     var n = daysBetween(start, today);
@@ -1094,6 +1129,13 @@
       if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank;
                              mv(res, dk, 'Tank', -e.fromTank, 'moved to the Bank');
                              mv(res, dk, 'Bank', e.fromTank, 'from the Tank'); }
+      /* A lock is eight days from the day it was tapped, or from the end of a
+         lock already running, so a second tap stacks rather than restarts. It
+         moves no minutes, so it is not a log line - it shows on the card. */
+      if (e && e.tankLock) {
+        var base = (lockUntil && daysBetween(d, lockUntil) > 0) ? lockUntil : d;
+        lockUntil = addDays(base, TANK_LOCK_DAYS * e.tankLock);
+      }
 
       var miss = bank < 0;
       res.misses[dk] = miss;
@@ -1120,16 +1162,18 @@
 
       d = addDays(d, 1);
     }
-    res.bank     = Math.round(bank * 100) / 100;
-    res.tank     = Math.round(tank * 100) / 100;
-    res.cleanRun = clean;
+    res.bank      = Math.round(bank * 100) / 100;
+    res.tank      = Math.round(tank * 100) / 100;
+    res.cleanRun  = clean;
+    res.lockUntil = (lockUntil && daysBetween(today, lockUntil) > 0) ? key(lockUntil) : null;
     _stop = res;
     return res;
   }
 
   function stopBank()  { return stop().bank; }
   function stopTank()  { return stop().tank; }
-  function tankOpen()  { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
+  function tankReached() { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
+  function tankOpen()  { return tankReached() && !stop().lockUntil; }
 
   /* Write the computed misses onto the days they happened, so the streak
      breaks on the right date rather than only showing as a total. */
@@ -1562,7 +1606,9 @@
         '<div class="field"><label>' +
           (tankOpen()
             ? 'Tank open'
-            : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days') + '</label>' +
+            : stop().lockUntil
+              ? 'Tank locked until ' + shortDate(stop().lockUntil)
+              : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days') + '</label>' +
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">Bank &rarr; Tank</div>' +
@@ -1573,6 +1619,15 @@
               '<button class="btn ghost" data-act="fromtank" style="width:100%">Take 1 out</button>' +
             '</div>' +
           '</div>' +
+          /* Offered only once the thirty are reached, and phrased as what it
+             does rather than as a setting, because it is a one-way act. */
+          (tankReached()
+            ? '<div class="btns" style="margin-top:8px"><button class="btn ghost" data-act="tanklock" style="flex:1">' +
+              'Lock the Tank ' + TANK_LOCK_DAYS + ' more days</button></div>' +
+              ((e.tankLock || 0)
+                ? '<div class="note" style="margin:8px 0 0">Locked <b>' + (e.tankLock * TANK_LOCK_DAYS) + '</b> days today. This cannot be taken back.</div>'
+                : '')
+            : '') +
           /* Said where the decision is made, and only when there is something
              in there to lose. The rule is easy to forget precisely because it
              so rarely fires, and the day it fires is the worst day to be
@@ -1963,12 +2018,20 @@
         }
         if (a === 'fromtank') {
           if (!tankOpen()) {
-            toast('Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
+            toast(stop().lockUntil
+              ? 'Tank locked until ' + shortDate(stop().lockUntil)
+              : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
             return;
           }
           if (stopTank() < 1) { toast('Nothing in the Tank'); return; }
           e.fromTank = (e.fromTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
+        }
+        if (a === 'tanklock') {
+          if (!tankReached()) { toast('Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days'); return; }
+          e.tankLock = (e.tankLock || 0) + 1;
+          e.logged = true; commit(true);
+          toast('Tank locked until ' + shortDate(stop().lockUntil)); return;
         }
         /* Opens a native time control rather than stamping the clock. On the
            phone that is the wheel; anywhere with a keyboard it can be typed.
@@ -2152,14 +2215,14 @@
        the sandbox is for practising both, and a practice day locked forever
        would only be in the way. */
     state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START,
-              rakList: state.rakList, finals: {}, startsLocked: {}, dayNotes: {} };
+              rakList: state.rakList, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
     _j8 = null; _stop = null;
     save(); render();
     toast('Sample data loaded');
   }
 
   function wipeAll() {
-    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, rakList: state.rakList };   // shortlist survives a wipe
+    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {}, rakList: state.rakList };   // shortlist survives a wipe
     HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
     _j8 = null; _stop = null;
     save(); render();
@@ -2182,15 +2245,12 @@
   function openStreaks() {
     sheetEl.innerHTML = head('Streaks', 'Tap one for its full history') +
       HABITS.map(function (h) {
-        var segs = segsOf(h.id);
-        var cur  = segs.filter(function (s) { return s.current; })[0];
-        var best = segs.reduce(function (m, s) { return Math.max(m, s.days); }, 0);
-        var breaks = segs.filter(function (s) { return !s.current; }).length;
+        var f = streakFacts(h.id), breaks = f.misses;
         return '<button class="srow" data-hab="' + h.id + '">' +
           '<span class="sn"><b>' + h.id + '</b><small>since ' + shortDate(state.starts[h.id]) +
             (breaks ? ' &middot; ' + breaks + ' break' + (breaks === 1 ? '' : 's') : ' &middot; never broken') + '</small></span>' +
-          '<span class="sv"><b>' + (cur ? cur.days.toLocaleString() : '0') + '</b><small>now</small></span>' +
-          '<span class="sv" style="margin-left:12px"><b>' + best.toLocaleString() + '</b><small>best</small></span>' +
+          '<span class="sv"><b>' + f.cur.toLocaleString() + '</b><small>now</small></span>' +
+          '<span class="sv" style="margin-left:12px"><b>' + f.best.toLocaleString() + '</b><small>best</small></span>' +
         '</button>';
       }).join('') +
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
@@ -2211,7 +2271,8 @@
 
   function openHabitStreaks(id) {
     var segs = segsOf(id).slice().reverse();     // newest first
-    var best = segs.reduce(function (m, s) { return Math.max(m, s.days); }, 0);
+    var best = streakFacts(id).best, pr = prior(id);
+    var carried = (priorMisses(id) || priorBest(id));
     sheetEl.innerHTML = head(id, 'Started ' + shortDate(state.starts[id]) + ' &middot; best ' + best.toLocaleString() + ' days') +
       (segs.length
         ? segs.map(function (s) {
@@ -2221,6 +2282,14 @@
               (s.days === best && best > 0 ? ' &starf;' : '') + '</b></div>';
           }).join('')
         : '<div class="note">Not started yet.</div>') +
+      /* The years before this copy, in one line - typed in on the history
+         sheet rather than walked, so there are no runs to list. */
+      (carried
+        ? '<div class="seg" style="opacity:.7"><span class="sd">' + shortDate(state.starts[id]) + ' &rarr; ' +
+            (pr.since ? shortDate(key(addDays(parse(pr.since), -1))) : 'before this copy') + '</span>' +
+            '<b>' + priorMisses(id) + ' miss' + (priorMisses(id) === 1 ? '' : 'es') +
+            (priorBest(id) ? ' &middot; best ' + priorBest(id).toLocaleString() + (priorBest(id) === best ? ' &starf;' : '') : '') + '</b></div>'
+        : '') +
       '<div class="btns"><button class="btn ghost" data-act="back">Back</button></div>';
     sheetEl.querySelector('[data-act="back"]').addEventListener('click', openStreaks);
     openOv('ovSheet');
@@ -2239,23 +2308,46 @@
 
   var _armStart = null, _armStartAt = 0;
 
+  /* Four things per habit, confirmed together: the original start, the day
+     the current run began, and the misses and longest run from before this
+     copy of the app. The last three are what a fresh install cannot know and
+     the closing numbers page prints, so they go in side by side. A "since"
+     left blank means the run began on the start date itself. */
+  var PRIOR_FIELDS = [
+    { k: 'since',  label: 'Current streak since', ph: 'YYYY-MM-DD, or blank', date: true },
+    { k: 'misses', label: 'Misses before this copy', ph: '0' },
+    { k: 'best',   label: 'Longest streak before, in days', ph: '0' }
+  ];
+
   function openStarts() {
-    sheetEl.innerHTML = head('Original start dates', 'Confirm one and it is fixed for good') +
+    sheetEl.innerHTML = head('Start dates and history', 'Confirm one and it is fixed for good') +
       HABITS.map(function (h) {
+        var pr = prior(h.id);
         if (startLocked(h.id)) {
           return '<div class="field"><label>' + h.id + '</label>' +
-            '<div class="note" style="margin:0">' + shortDate(state.starts[h.id]) +
-            ' &nbsp;&middot;&nbsp; &#128274; confirmed &mdash; this cannot be changed</div></div>';
+            '<div class="note" style="margin:0">Started ' + shortDate(state.starts[h.id]) +
+            (pr.since ? ' &nbsp;&middot;&nbsp; run since ' + shortDate(pr.since) : '') +
+            (priorMisses(h.id) ? ' &nbsp;&middot;&nbsp; ' + priorMisses(h.id) + ' misses before' : '') +
+            (priorBest(h.id) ? ' &nbsp;&middot;&nbsp; best before ' + priorBest(h.id).toLocaleString() + ' d' : '') +
+            '<br>&#128274; confirmed &mdash; this cannot be changed</div></div>';
         }
         var armed = (_armStart === h.id);
-        return '<div class="field"><label>' + h.id + '</label>' +
+        return '<div class="field"><label>' + h.id + ' &mdash; original start</label>' +
           '<input type="text" data-start="' + h.id + '" value="' + state.starts[h.id] + '" placeholder="YYYY-MM-DD" autocomplete="off">' +
+          PRIOR_FIELDS.map(function (f) {
+            var v = (pr[f.k] === undefined || pr[f.k] === null) ? '' : pr[f.k];
+            return '<label style="margin-top:6px">' + f.label + '</label>' +
+              '<input type="text" ' + (f.date ? '' : 'inputmode="numeric" ') + 'data-prior="' + h.id + ':' + f.k +
+              '" value="' + escAttr(String(v)) + '" placeholder="' + f.ph + '" autocomplete="off">';
+          }).join('') +
           '<button class="btn ' + (armed ? 'danger' : 'ghost') + '" data-lock="' + h.id + '" style="width:100%;margin-top:6px">' +
-            (armed ? 'Tap again to fix this date for good' : 'Confirm this date') + '</button></div>';
+            (armed ? 'Tap again to fix these for good' : 'Confirm ' + h.id) + '</button></div>';
       }).join('') +
-      '<div class="note">A confirmed date is the one the streak counts from. Fixing it means the history cannot be moved under the numbers later.</div>' +
+      '<div class="note">A confirmed habit is fixed: the date its streak counts from and what came before it. Fixing it means the history cannot be moved under the numbers later.</div>' +
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
-      '<button class="btn go" data-act="savestarts">Save</button></div>';
+      '<button class="btn go" data-act="savestarts">Save</button></div>' +
+      '<div class="btns" style="margin-top:22px"><button class="btn ghost" data-act="bal" style="flex:1;opacity:.7">' +
+        (anchorLocked() ? 'See the balances' : 'Set the balances') + '</button></div>';
 
     // Unlocked fields are read back before any lock, so what gets fixed is
     // what is on the screen rather than what was last saved.
@@ -2266,22 +2358,37 @@
         if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(parse(v).getTime())) { bad = i.getAttribute('data-start'); return; }
         state.starts[i.getAttribute('data-start')] = v;
       });
+      if (bad) return bad + ' - use YYYY-MM-DD';
+      Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-prior]'), function (i) {
+        var bits = i.getAttribute('data-prior').split(':'), id = bits[0], k = bits[1], v = i.value.trim();
+        if (!state.prior[id]) state.prior[id] = {};
+        if (k === 'since') {
+          if (v && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(parse(v).getTime()))) { bad = bad || id + ' since - use YYYY-MM-DD, or leave it blank'; return; }
+          if (v && daysBetween(parse(state.starts[id]), parse(v)) < 0) { bad = bad || id + ' since - it is before the start date'; return; }
+          if (v) state.prior[id].since = v; else delete state.prior[id].since;
+        } else {
+          if (v && !/^\d+$/.test(v)) { bad = bad || id + ' ' + k + ' - whole numbers only'; return; }
+          if (v && +v) state.prior[id][k] = +v; else delete state.prior[id][k];
+        }
+      });
       return bad;
     }
+
+    sheetEl.querySelector('[data-act="bal"]').addEventListener('click', function () { _armStart = null; openBalances(); });
 
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
       _armStart = null; closeOv('ovSheet');
     });
     sheetEl.querySelector('[data-act="savestarts"]').addEventListener('click', function () {
       var bad = readStarts();
-      if (bad) { toast('Check ' + bad + ' - use YYYY-MM-DD'); return; }
+      if (bad) { toast('Check ' + bad); return; }
       _armStart = null; save(); render(); closeOv('ovSheet'); toast('Saved');
     });
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-lock]'), function (b) {
       b.addEventListener('click', function () {
         var id = b.getAttribute('data-lock');
         var bad = readStarts();
-        if (bad) { toast('Check ' + bad + ' - use YYYY-MM-DD'); return; }
+        if (bad) { toast('Check ' + bad); return; }
         var fresh = (_armStart === id) && (Date.now() - _armStartAt < 8000);
         if (fresh) {
           _armStart = null;
@@ -2497,13 +2604,13 @@
       : 'Off - ask for a PIN when the app opens';
   }
 
-  /* Restore has no row of its own. It is needed once a phone, if ever, and a
-     menu that shows it every day is a menu that reads as being about backups.
-     It sits at the foot of the PIN sheet - the one settings sheet left - where
-     it is reachable without being in the way. */
-  var RESTORE_ROW = '<div class="btns" style="margin-top:22px"><button class="btn ghost" data-act="restore" style="flex:1;opacity:.7">Restore from a backup</button></div>';
+  /* Start over has no row of its own. It is needed once a phone, if ever, and
+     a menu that shows it every day is a menu with a wipe in it. It sits at the
+     foot of the PIN sheet - the one settings sheet left - where it is
+     reachable without being in the way. */
+  var STARTOVER_ROW = '<div class="btns" style="margin-top:22px"><button class="btn ghost" data-act="startover" style="flex:1;opacity:.7">Start over</button></div>';
   function wireRestore() {
-    sheetEl.querySelector('[data-act="restore"]').addEventListener('click', openRestore);
+    sheetEl.querySelector('[data-act="startover"]').addEventListener('click', function () { _armWipe = 0; openStartOver(); });
   }
 
   document.getElementById('mPin').addEventListener('click', function () {
@@ -2514,11 +2621,11 @@
         '<div class="note">' +
         'This stops someone holding your unlocked phone from opening CHECK and changing things. It is <b>not</b> encryption - it does not protect the data from anyone who knows their way around a browser.<br><br>' +
         '<b>You are asked on a fresh open only.</b> If the app is still open in the background, tapping back to it walks straight in. Swipe it closed before handing the phone over.<br><br>' +
-        '<b>There is no way back in without it.</b> Copy the <b>Notes</b> page first, so a forgotten PIN costs a reinstall and nothing else.' +
+        '<b>There is no way back in without it.</b> A forgotten PIN means a reinstall and starting over.' +
         '</div>' +
         '<div class="btns"><button class="btn ghost" data-act="x">Cancel</button>' +
         '<button class="btn go" data-act="go">Choose a PIN</button></div>' +
-        RESTORE_ROW;
+        STARTOVER_ROW;
       sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
       wireRestore();
       sheetEl.querySelector('[data-act="go"]').addEventListener('click', function () {
@@ -2534,7 +2641,7 @@
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
       '<button class="btn warn" data-act="ch">Change PIN</button></div>' +
       '<div class="btns" style="margin-top:10px"><button class="btn danger" data-act="off">Turn the PIN lock off</button></div>' +
-      RESTORE_ROW;
+      STARTOVER_ROW;
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
     wireRestore();
     sheetEl.querySelector('[data-act="ch"]').addEventListener('click', function () {
@@ -2554,12 +2661,10 @@
      One page of text: the date a note was written, the note under it, and
      nothing else. The export this replaces carried balances, streaks and the
      R and N entries as well, and the one thing anybody came back to read was
-     buried under all of it.
-
-     The whole app still rides along on the last line, below a divider, so
-     this page IS the backup - a copy of it kept anywhere is enough to bring
-     everything back on a new phone. Kept at the very bottom so it is never
-     what the eye lands on. */
+     buried under all of it. There is no backup in here either, by choice:
+     the days themselves are not worth keeping, only what was written on them.
+     What a fresh copy needs is on the closing numbers page, shown once, when
+     the app is wiped. */
   function buildNotes() {
     var o = [];
     var written = Object.keys(state.dayNotes || {}).filter(function (dk) {
@@ -2573,9 +2678,6 @@
       o.push(dayNote(dk).trim());
     });
 
-    o.push(''); o.push(''); o.push('');
-    o.push('--- BACKUP - the whole app is in the line below. Keep a copy of this page somewhere safe. ---');
-    o.push(JSON.stringify(state));
     return o.join('\n');
   }
 
@@ -2586,43 +2688,109 @@
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button><button class="btn go" data-act="copy">Copy</button></div>';
     document.getElementById('exText').value = buildNotes();
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
-    sheetEl.querySelector('[data-act="copy"]').addEventListener('click', function () {
-      var ta = document.getElementById('exText'), ok = false;
-      try {
-        ta.removeAttribute('readonly'); ta.select(); ta.setSelectionRange(0, 999999);
-        ok = document.execCommand('copy'); ta.setAttribute('readonly', '');
-      } catch (err) {}
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(ta.value).then(
-          function () { toast('Copied'); },
-          function () { toast(ok ? 'Copied' : 'Select the text and copy'); });
-      } else { toast(ok ? 'Copied' : 'Select the text and copy'); }
-    });
+    sheetEl.querySelector('[data-act="copy"]').addEventListener('click', function () { copyText('exText'); });
     openOv('ovSheet');
   });
 
-  /* ---------------- restore ----------------
-     The Notes page carries a whole backup on its last line. The paste is
-     searched from the bottom up for the last line that parses and looks like a
-     state, so pasting the entire page works as well as pasting only that line. */
-  function findBackup(text) {
-    var lines = String(text).split(/\r?\n/);
-    for (var i = lines.length - 1; i >= 0; i--) {
-      var t = lines[i].trim();
-      if (t.charAt(0) !== '{') continue;
-      try {
-        var o = JSON.parse(t);
-        if (o && typeof o === 'object' && o.starts && o.days) return o;
-      } catch (err) { /* not the line, keep walking up */ }
-    }
-    return null;
+  function copyText(id, then) {
+    var ta = document.getElementById(id), ok = false;
+    try {
+      ta.removeAttribute('readonly'); ta.select(); ta.setSelectionRange(0, 999999);
+      ok = document.execCommand('copy'); ta.setAttribute('readonly', '');
+    } catch (err) {}
+    function done(good) { toast(good ? 'Copied' : 'Select the text and copy'); if (then) then(good); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(function () { done(true); }, function () { done(ok); });
+    } else done(ok);
   }
 
-  /* Two ways back, because there are two ways to lose this and they do not lose
-     the same thing. A pasted backup brings back every day; it needs a copy to
-     exist. Typed balances bring back only the four numbers, and need nothing at
-     all - which is the case that actually happens, a wipe with no copy and the
-     start dates re-entered by hand. Neither replaces the other. */
+  /* ---------------- start over ----------------
+     It takes everything, deliberately - a clean start that quietly kept the
+     finalized days or a confirmed balance would be a new app carrying the old
+     one's rulings. The PIN is the exception: it is not a record of anything.
+
+     What is worth carrying is shown ONCE, on the closing numbers page, and
+     only after the wipe has already happened. The exact 8ANK, TH8NK, Bank and
+     Tank live behind a veil the rest of the time; the only way to read them
+     is to give up the history they came from. That is what stops the page
+     being a way to peek. The page will not close until Copy has been tapped. */
+  var _armWipe = 0;
+
+  function buildClosing() {
+    var o = [];
+    o.push('CHECK - closing numbers - ' + key(today));
+    o.push('');
+    o.push('BALANCES');
+    o.push('  8ANK   ' + fmt(bank8()));
+    o.push('  TH8NK  ' + fmt(thank()));
+    o.push('  Bank   ' + fmt(stopBank()) + ' min');
+    o.push('  Tank   ' + fmt(stopTank()) + ' min');
+    o.push('');
+    o.push('STREAKS - type these into Start dates and history on the new copy');
+    _segs = {};
+    HABITS.forEach(function (h) {
+      var f = streakFacts(h.id);
+      o.push('');
+      o.push('  ' + h.id);
+      o.push('    original start        ' + state.starts[h.id]);
+      o.push('    current streak since  ' + (f.since || state.starts[h.id]) + '   (' + f.cur.toLocaleString() + ' days)');
+      o.push('    misses                ' + f.misses);
+      o.push('    longest streak        ' + f.best.toLocaleString() + ' days');
+    });
+    return o.join('\n');
+  }
+
+  function openStartOver() {
+    var armed = (_armWipe && Date.now() - _armWipe < 8000);
+    var n = Object.keys(state.days).length;
+    sheetEl.innerHTML = head('Start over', 'Wipe everything and begin again') +
+      '<div class="note">This clears <b>' + n + ' day' + (n === 1 ? '' : 's') +
+      '</b> of entries and everything alongside them: the notes, the finalized ' +
+      'days, the fixed start dates, and any balances set by hand.<br><br>' +
+      'The moment it is done you are shown the <b>closing numbers</b> - the four ' +
+      'balances and each streak - once, to copy and type into the new copy. ' +
+      'Copy the <b>Notes</b> page first if you want the notes.<br><br>' +
+      '<b>Your PIN is kept.</b></div>' +
+      '<div class="warnbox">This cannot be undone.</div>' +
+      '<div class="btns" style="margin-bottom:10px">' +
+        '<button class="btn ' + (armed ? 'danger' : 'ghost') + '" data-act="wipe" style="flex:1">' +
+          (armed ? 'Tap again to wipe everything' : 'Wipe everything') + '</button></div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
+
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
+      _armWipe = 0; closeOv('ovSheet');
+    });
+    sheetEl.querySelector('[data-act="wipe"]').addEventListener('click', function () {
+      if (!armed) { _armWipe = Date.now(); openStartOver(); return; }
+      _armWipe = 0;
+      var closing = buildClosing();               // read before the wipe, shown after it
+      wipeAll();
+      openClosing(closing);
+    });
+    openOv('ovSheet');
+  }
+
+  function openClosing(text) {
+    var copied = false;
+    sheetEl.innerHTML = head('Closing numbers', 'Shown once - copy before closing') +
+      '<textarea id="clText" readonly></textarea>' +
+      '<div class="note">These are not kept anywhere. Copy them now and type them into the new copy on the Start dates and history sheet and the Set the balances sheet.</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="x">Close</button><button class="btn go" data-act="copy">Copy</button></div>';
+    document.getElementById('clText').value = text;
+    sheetEl.querySelector('[data-act="copy"]').addEventListener('click', function () {
+      copyText('clText', function () { copied = true; });
+    });
+    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
+      if (!copied) { toast('Copy first - this page is not shown again'); return; }
+      closeOv('ovSheet');
+    });
+    openOv('ovSheet');
+  }
+
+  /* ---------------- balances by hand ----------------
+     The way back after a wipe: the four numbers as they stood at the start of
+     a named day, typed in from the closing numbers page. Reached from the
+     Start dates and history sheet, since the two are done together. */
   var RESTORE_FIELDS = [
     { k: 'bank8',    label: '8ANK &middot; JUST8',      get: bank8 },
     { k: 'thank',    label: 'TH8NK &middot; JUST8',     get: thank,    veil: THANK_VEIL },
@@ -2654,13 +2822,13 @@
             '<div class="note" style="margin:0">' + fmt(+(a[f.k] || 0)) + '</div></div>';
         }).join('') +
         '<div class="btns"><button class="btn ghost" data-act="back">Back</button></div>';
-      sheetEl.querySelector('[data-act="back"]').addEventListener('click', openRestore);
+      sheetEl.querySelector('[data-act="back"]').addEventListener('click', function () { _armStart = null; openStarts(); });
       openOv('ovSheet');
       return;
     }
 
     var armed = (_armAnc && Date.now() - _armAnc < 8000);
-    sheetEl.innerHTML = head('Set the balances', 'When there is no export to paste') +
+    sheetEl.innerHTML = head('Set the balances', 'After a wipe, or on a new phone') +
       '<div class="note">Enter the four numbers <b>as they stood at the start of the ' +
       'day below</b>. Everything logged from that day on is counted on top as ' +
       'normal.<br><br>This changes no day you have already tapped, and it shows up ' +
@@ -2691,7 +2859,7 @@
         '<button class="btn ghost" data-act="back">Back</button></div>';
 
     sheetEl.querySelector('[data-act="back"]').addEventListener('click', function () {
-      _armAnc = 0; openRestore();
+      _armAnc = 0; _armStart = null; openStarts();
     });
 
     /* Clearing drops the anchor and lets the walk run from the start dates
@@ -2757,73 +2925,6 @@
       }
       _armAnc = Date.now();
       save(); openBalances();
-    });
-    openOv('ovSheet');
-  }
-
-  function openRestore() {
-    sheetEl.innerHTML = head('Restore from a backup', 'Paste a copy of the Notes page, or just its last line') +
-      '<textarea id="rsText" placeholder="Paste it here"></textarea>' +
-      '<div class="note" id="rsInfo">Everything in the app now will be replaced by what is in the backup.</div>' +
-      '<div class="btns" style="margin-bottom:10px"><button class="btn ghost" data-act="x">Close</button>' +
-      '<button class="btn go" id="rsGo">Check it</button></div>' +
-      '<div class="note" style="margin:0 0 8px">' +
-        (anchorLocked()
-          ? 'The balances were set by hand and confirmed. &#128274;'
-          : 'Nothing to paste? Put the four balances in by hand.') + '</div>' +
-      '<div class="btns"><button class="btn ghost" data-act="bal" style="flex:1">' +
-        (anchorLocked() ? 'See the balances' : 'Set the balances') + '</button></div>';
-
-    sheetEl.querySelector('[data-act="bal"]').addEventListener('click', openBalances);
-
-    /* Two steps on purpose: the first reads the paste and says what is in it,
-       the second is the decision. Restoring the wrong file silently over a
-       year of history is the one mistake this sheet could make. */
-    var found = null;
-    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
-    document.getElementById('rsGo').addEventListener('click', function () {
-      var ta   = document.getElementById('rsText');
-      var info = document.getElementById('rsInfo');
-      var btn  = document.getElementById('rsGo');
-
-      if (found) {
-        state = {
-          starts:       found.starts || {},
-          days:         found.days   || {},
-          finals:       found.finals || {},
-          startsLocked: found.startsLocked || {},
-          dayNotes:     found.dayNotes || {},
-          rakList:      found.rakList || state.rakList,
-          demo:         found.demo,
-          demoSeed:     found.demoSeed
-        };
-        /* A backup taken after a hand-set restore carries the anchor with it,
-           lock and all; without this the pasted days would recount from zero.
-           Replacing everything is the one thing that can move a confirmed
-           balance, and it is not a quiet edit - it wipes the app first. */
-        if (found.anchor) state.anchor = found.anchor;
-        state.anchorLocked = !!found.anchorLocked;
-        HABITS.forEach(function (h) {
-          if (!state.starts[h.id]) state.starts[h.id] = DEFAULT_STARTS[h.id];
-        });
-        _j8 = null; _stop = null;
-        save(); render(); closeOv('ovSheet');
-        toast('Restored ' + Object.keys(state.days).length + ' days');
-        return;
-      }
-
-      var o = findBackup(ta.value);
-      if (!o) { toast('No backup found in that text'); return; }
-      var dks = Object.keys(o.days || {}).sort();
-      found = o;
-      info.innerHTML =
-        '<b>' + dks.length + ' day' + (dks.length === 1 ? '' : 's') + '</b>' +
-        (dks.length ? ' &nbsp;&middot;&nbsp; ' + shortDate(dks[0]) + ' &rarr; ' + shortDate(dks[dks.length - 1]) : '') +
-        (o.finals && Object.keys(o.finals).length
-          ? ' &nbsp;&middot;&nbsp; ' + Object.keys(o.finals).length + ' finalized' : '') +
-        '<br><br>This replaces everything in the app now, and cannot be undone.';
-      btn.textContent = 'Replace everything';
-      btn.className = 'btn danger';
     });
     openOv('ovSheet');
   }

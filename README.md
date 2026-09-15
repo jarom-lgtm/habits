@@ -35,19 +35,28 @@ site data erases the history.
 
 **Notes** is one page of text: the date a note was written and the note under
 it, nothing else. The per-day point workings live in **Point and minute log**,
-which accounts for every movement. The Notes page's last line, below a divider,
-is a full JSON backup — so a copy of that page kept anywhere is the backup.
+which accounts for every movement. There is no backup file, by choice: the
+days themselves are not worth keeping, only what was written on them and
+where the numbers stand.
 
-## Two ways back
+## Starting over
 
-Losing this happens two ways, and they do not lose the same thing.
+**Start over**, at the foot of the PIN lock sheet, wipes everything. The moment
+it has, it shows the **closing numbers** once — the exact four balances, and
+for each habit its original start, the day its current run began, its misses
+and its longest run — and will not close until they have been copied. That is
+the only time the exact TH8NK and Tank are ever shown; the rest of the time
+they read as a ceiling ("18+", "11+"), so there is no way to peek at them
+without giving up the history they came from.
 
-- **Restore from a backup**, at the foot of the PIN lock sheet, takes a pasted
-  copy of the Notes page and replaces everything. It needs a copy to exist.
-- **Set the balances**, on the same sheet, takes just the four numbers — 8ANK,
-  TH8NK, and the STOP Bank and Tank — as they stood at the start of a named day.
-  It needs nothing but the numbers, which is the case that actually happens: a
-  wipe with no copy, and the start dates re-entered by hand.
+A fresh copy takes those numbers back by hand:
+
+- **Start dates and history** takes, per habit, the original start, the day
+  the current run began, and the misses and longest run from before this copy.
+  Confirming a habit fixes all four for good. The walk starts at the "since"
+  date; the two counts are added on top of what this copy records.
+- **Set the balances**, reached from that sheet, takes the four numbers as they
+  stood at the start of a named day.
 
 No balance is stored anywhere; each is walked out of the entries every time it
 is asked for, which is what keeps them honest. Typed balances therefore cannot
