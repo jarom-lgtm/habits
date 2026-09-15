@@ -369,15 +369,11 @@
 <div class="overlay" id="ovMenu">
   <div class="sheet">
     <div class="grab"></div>
-    <button class="row" id="mExport"><span class="ic">&#8599;</span><span>Export for Claude<small>Copy history to paste into a session</small></span></button>
+    <button class="row" id="mNotes"><span class="ic">&#8599;</span><span>Notes<small>Every note you have written, one page of text</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
-    <button class="row" id="mRestore"><span class="ic">&#8600;</span><span>Restore from a backup<small>Put an export back, after a wipe or a new phone</small></span></button>
     <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point and minute log<small>Every movement, earned and used, one timeline</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Original start dates<small>When each one first began</small></span></button>
-    <button class="row" id="mLockNow"><span class="ic">&#128274;</span><span>Lock now<small>Put the PIN screen up before handing the phone over</small></span></button>
     <button class="row" id="mPin"><span class="ic">&#128273;</span><span>PIN lock<small id="mPinSub">Ask for a PIN when the app opens</small></span></button>
-    <button class="row" id="mAbout"><span class="ic">&#9432;</span><span>About<small>How this stores your data</small></span></button>
-    <button class="row" id="mStartOver"><span class="ic">&#9888;</span><span>Start over<small>Wipe everything and begin again</small></span></button>
   </div>
 </div>
 
@@ -2499,13 +2495,16 @@
     document.getElementById('mPinSub').textContent = on
       ? 'On - change it, or turn it off'
       : 'Off - ask for a PIN when the app opens';
-    document.getElementById('mLockNow').style.display = on ? '' : 'none';
   }
 
-  document.getElementById('mLockNow').addEventListener('click', function () {
-    closeOv('ovMenu'); closeOv('ovSheet');
-    showLock('enter');
-  });
+  /* Restore has no row of its own. It is needed once a phone, if ever, and a
+     menu that shows it every day is a menu that reads as being about backups.
+     It sits at the foot of the PIN sheet - the one settings sheet left - where
+     it is reachable without being in the way. */
+  var RESTORE_ROW = '<div class="btns" style="margin-top:22px"><button class="btn ghost" data-act="restore" style="flex:1;opacity:.7">Restore from a backup</button></div>';
+  function wireRestore() {
+    sheetEl.querySelector('[data-act="restore"]').addEventListener('click', openRestore);
+  }
 
   document.getElementById('mPin').addEventListener('click', function () {
     closeOv('ovMenu');
@@ -2514,12 +2513,14 @@
       sheetEl.innerHTML = head('Turn on the PIN lock', 'Asked when the app opens fresh') +
         '<div class="note">' +
         'This stops someone holding your unlocked phone from opening CHECK and changing things. It is <b>not</b> encryption - it does not protect the data from anyone who knows their way around a browser.<br><br>' +
-        '<b>You are asked on a fresh open only.</b> If the app is still open in the background, tapping back to it walks straight in. Use <b>Lock now</b> before handing the phone over.<br><br>' +
-        '<b>There is no way back in without it.</b> Run <b>Export for Claude</b> first, so a forgotten PIN costs a reinstall and nothing else.' +
+        '<b>You are asked on a fresh open only.</b> If the app is still open in the background, tapping back to it walks straight in. Swipe it closed before handing the phone over.<br><br>' +
+        '<b>There is no way back in without it.</b> Copy the <b>Notes</b> page first, so a forgotten PIN costs a reinstall and nothing else.' +
         '</div>' +
         '<div class="btns"><button class="btn ghost" data-act="x">Cancel</button>' +
-        '<button class="btn go" data-act="go">Choose a PIN</button></div>';
+        '<button class="btn go" data-act="go">Choose a PIN</button></div>' +
+        RESTORE_ROW;
       sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+      wireRestore();
       sheetEl.querySelector('[data-act="go"]').addEventListener('click', function () {
         closeOv('ovSheet');
         showLock('new', function () { toast('PIN lock is on'); });
@@ -2532,8 +2533,10 @@
       '<div class="note">Changing it or turning it off asks for the current PIN first.</div>' +
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button>' +
       '<button class="btn warn" data-act="ch">Change PIN</button></div>' +
-      '<div class="btns" style="margin-top:10px"><button class="btn danger" data-act="off">Turn the PIN lock off</button></div>';
+      '<div class="btns" style="margin-top:10px"><button class="btn danger" data-act="off">Turn the PIN lock off</button></div>' +
+      RESTORE_ROW;
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
+    wireRestore();
     sheetEl.querySelector('[data-act="ch"]').addEventListener('click', function () {
       closeOv('ovSheet');
       showLock('enter', function () { showLock('new', function () { toast('PIN changed'); }); });
@@ -2547,148 +2550,41 @@
     openOv('ovSheet');
   });
 
-  /* ---------------- start over ----------------
-     Wiping used to hang off the sample-data banner, which only appears when
-     there IS sample data - so the one instance that might genuinely need
-     clearing, a real one, had no way to do it at all. It lives in the menu now.
+  /* ---------------- notes ----------------
+     One page of text: the date a note was written, the note under it, and
+     nothing else. The export this replaces carried balances, streaks and the
+     R and N entries as well, and the one thing anybody came back to read was
+     buried under all of it.
 
-     It takes everything, deliberately. A clean start that quietly kept the
-     finalized days, the fixed start dates or a confirmed balance would not be a
-     clean start; it would be a new app carrying the old one's rulings, and the
-     first surprise would arrive weeks later when one of them fired against
-     history that no longer existed.
-
-     The PIN is the exception. It is not a record of anything and it is the one
-     thing here protecting the screen, so removing it is left as its own
-     deliberate act on its own sheet rather than a side effect of this one. */
-  var _armWipe = 0;
-
-  function openStartOver() {
-    var armed = (_armWipe && Date.now() - _armWipe < 8000);
-    var n = Object.keys(state.days).length;
-    sheetEl.innerHTML = head('Start over', 'Wipe everything and begin again') +
-      '<div class="note">This clears <b>' + n + ' day' + (n === 1 ? '' : 's') +
-      '</b> of entries and everything alongside them: the notes, the finalized ' +
-      'days, the fixed start dates, and any balances set by hand. The start dates ' +
-      'go back to their defaults for you to enter again.<br><br>' +
-      '<b>Your PIN is kept.</b> Remove it on the PIN lock sheet if you want that gone too.' +
-      '</div>' +
-      '<div class="warnbox">This cannot be undone. If you want the history back ' +
-      'afterwards you will need an export taken <b>before</b> you tap this.</div>' +
-      '<div class="btns" style="margin-bottom:10px">' +
-        '<button class="btn ' + (armed ? 'danger' : 'ghost') + '" data-act="wipe" style="flex:1">' +
-          (armed ? 'Tap again to wipe everything' : 'Wipe everything') + '</button></div>' +
-      '<div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
-
-    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
-      _armWipe = 0; closeOv('ovSheet');
-    });
-    sheetEl.querySelector('[data-act="wipe"]').addEventListener('click', function () {
-      if (!armed) { _armWipe = Date.now(); openStartOver(); return; }
-      _armWipe = 0;
-      /* Rebuilt rather than emptied key by key, so anything ever added to the
-         state cannot survive by having been forgotten here. */
-      state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {} };
-      HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
-      _j8 = null; _stop = null;
-      save(); render(); closeOv('ovSheet');
-      toast('Wiped clean - set your start dates');
-    });
-    openOv('ovSheet');
-  }
-
-  document.getElementById('mStartOver').addEventListener('click', function () {
-    closeOv('ovMenu'); _armWipe = 0; openStartOver();
-  });
-
-  document.getElementById('mAbout').addEventListener('click', function () {
-    closeOv('ovMenu');
-    sheetEl.innerHTML = head('About', APP_VERSION + (SANDBOX ? ' &middot; sandbox' : '')) +
-      '<div class="note">' +
-      'Everything you tap stays on this phone. Nothing is uploaded, there is no account, and it works with no signal.<br><br>' +
-      '<b>Every streak holds by default.</b> Days you never opened the app still count as kept. Nothing breaks until you say it broke.<br><br>' +
-      'To record a miss after the fact, <b>tap the date at the top</b>, pick the day it happened, then open that habit and choose Miss. Same for filling in details from days you were offline.<br><br>' +
-      'Because the data is only here, <b>clearing this browser\'s site data erases everything</b>. Export now and then so there is something to put back.<br><br>' +
-      'An export can be put back with <b>Restore from a backup</b> &mdash; paste the whole thing in, including the last line. With no export to paste, the same sheet will take the four balances by hand; the start dates go in on their own sheet.<br><br>' +
-      'The export itself is for reading: the streaks, and what you wrote on each day. The workings behind the numbers live in the <b>point and minute log</b>.' +
-      '</div><div class="btns"><button class="btn ghost" data-act="x">Close</button></div>';
-    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
-    openOv('ovSheet');
-  });
-
-  /* ---------------- export ---------------- */
-  function buildExport() {
+     The whole app still rides along on the last line, below a divider, so
+     this page IS the backup - a copy of it kept anywhere is enough to bring
+     everything back on a new phone. Kept at the very bottom so it is never
+     what the eye lands on. */
+  function buildNotes() {
     var o = [];
-    o.push('CHECK EXPORT - ' + key(today));
-    o.push('');
-    o.push('BANKS   8ANK ' + fmt(bank8()) + '   TH8NK ' + fmtThank() +
-           '   STOP bank ' + fmt(stopBank()) + ' min   tank ' + fmtTank() + ' min');
-
-    /* Where each one stands, and nothing more. The run-by-run history that used
-       to follow was the longest section in the file and the least read - it is
-       a tap away on the Streaks sheet, laid out far better than a text list. */
-    o.push('');
-    o.push('STREAKS');
-    HABITS.forEach(function (h) {
-      var s = streak(h.id);
-      var segs = streakSegments(h.id);
-      var best = segs.reduce(function (m2, x) { return Math.max(m2, x.days); }, 0);
-      var breaks = segs.filter(function (x) { return !x.current; }).length;
-      o.push('  ' + h.id +
-             '  -  now ' + (s < 0 ? 'not started' : s.toLocaleString() + ' d') +
-             ', best ' + best.toLocaleString() + ' d, ' +
-             (breaks ? breaks + ' break' + (breaks === 1 ? '' : 's') : 'never broken') +
-             ', since ' + state.starts[h.id]);
-    });
-
-    /* Words only. The per-day workings used to sit here too - every cup, every
-       window, every letter and transfer - and a year of them buried the one
-       thing anybody actually reads this for. Those numbers are all still in the
-       app on the day they belong to, and the point and minute log accounts for
-       every one of them; repeating them here as codes served nobody.
-
-       Three kinds of writing, in the order they matter: the day's own note,
-       then what was done on R, then who it went to on N. A day with none of the
-       three is left out rather than printed empty. */
-    o.push('');
-    o.push('NOTES');
-    var noteKeys = {};
-    Object.keys(state.dayNotes || {}).forEach(function (dk) { noteKeys[dk] = true; });
-    Object.keys(state.days).forEach(function (dk) {
-      var day = state.days[dk] || {};
-      if ((day.RAK && day.RAK.note) || (day.NOTE && day.NOTE.who)) noteKeys[dk] = true;
-    });
-
-    var written = Object.keys(noteKeys).filter(function (dk) {
-      var day = state.days[dk] || {};
-      return dayNote(dk).trim() || (day.RAK && day.RAK.note) || (day.NOTE && day.NOTE.who);
+    var written = Object.keys(state.dayNotes || {}).filter(function (dk) {
+      return dayNote(dk).trim();
     }).sort().reverse();
 
-    if (!written.length) o.push('  (nothing written down yet)');
-    written.forEach(function (dk) {
-      var day = state.days[dk] || {};
-      /* Newlines are folded to " / " so one day stays one block and a long note
-         cannot be misread as the start of another day. */
-      var dnote = dayNote(dk).trim().replace(/\s*\n\s*/g, ' / ');
-      o.push('');
-      o.push(dk);
-      if (dnote) o.push('  ' + dnote);
-      if (day.RAK && day.RAK.note) o.push('  RAK   ' + day.RAK.note);
-      if (day.NOTE && day.NOTE.who) o.push('  NOTE  ' + day.NOTE.who);
+    if (!written.length) o.push('Nothing written down yet.');
+    written.forEach(function (dk, i) {
+      if (i) o.push('');
+      o.push(parse(dk).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+      o.push(dayNote(dk).trim());
     });
 
-    o.push('');
-    o.push('--- BACKUP - paste this whole export into Restore from a backup ---');
+    o.push(''); o.push(''); o.push('');
+    o.push('--- BACKUP - the whole app is in the line below. Keep a copy of this page somewhere safe. ---');
     o.push(JSON.stringify(state));
     return o.join('\n');
   }
 
-  document.getElementById('mExport').addEventListener('click', function () {
+  document.getElementById('mNotes').addEventListener('click', function () {
     closeOv('ovMenu');
-    sheetEl.innerHTML = head('Export', 'Paste this into a Claude session') +
+    sheetEl.innerHTML = head('Notes', 'Newest first') +
       '<textarea id="exText" readonly></textarea>' +
       '<div class="btns"><button class="btn ghost" data-act="x">Close</button><button class="btn go" data-act="copy">Copy</button></div>';
-    document.getElementById('exText').value = buildExport();
+    document.getElementById('exText').value = buildNotes();
     sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () { closeOv('ovSheet'); });
     sheetEl.querySelector('[data-act="copy"]').addEventListener('click', function () {
       var ta = document.getElementById('exText'), ok = false;
@@ -2706,11 +2602,9 @@
   });
 
   /* ---------------- restore ----------------
-     The export has always carried a whole backup on its last line and there was
-     no way to put it back, which made it a backup in name only - the copy would
-     have had to be reinstated by hand. The paste is searched from the bottom up
-     for the last line that parses and looks like a state, so pasting the entire
-     export works as well as pasting only that line. */
+     The Notes page carries a whole backup on its last line. The paste is
+     searched from the bottom up for the last line that parses and looks like a
+     state, so pasting the entire page works as well as pasting only that line. */
   function findBackup(text) {
     var lines = String(text).split(/\r?\n/);
     for (var i = lines.length - 1; i >= 0; i--) {
@@ -2725,9 +2619,9 @@
   }
 
   /* Two ways back, because there are two ways to lose this and they do not lose
-     the same thing. A pasted export brings back every day; it needs an export to
+     the same thing. A pasted backup brings back every day; it needs a copy to
      exist. Typed balances bring back only the four numbers, and need nothing at
-     all - which is the case that actually happens, a wipe with no export and the
+     all - which is the case that actually happens, a wipe with no copy and the
      start dates re-entered by hand. Neither replaces the other. */
   var RESTORE_FIELDS = [
     { k: 'bank8',    label: '8ANK &middot; JUST8',      get: bank8 },
@@ -2868,15 +2762,15 @@
   }
 
   function openRestore() {
-    sheetEl.innerHTML = head('Restore from a backup', 'Paste an export, or just its last line') +
-      '<textarea id="rsText" placeholder="Paste the export here"></textarea>' +
+    sheetEl.innerHTML = head('Restore from a backup', 'Paste a copy of the Notes page, or just its last line') +
+      '<textarea id="rsText" placeholder="Paste it here"></textarea>' +
       '<div class="note" id="rsInfo">Everything in the app now will be replaced by what is in the backup.</div>' +
       '<div class="btns" style="margin-bottom:10px"><button class="btn ghost" data-act="x">Close</button>' +
       '<button class="btn go" id="rsGo">Check it</button></div>' +
       '<div class="note" style="margin:0 0 8px">' +
         (anchorLocked()
           ? 'The balances were set by hand and confirmed. &#128274;'
-          : 'No export to paste? Put the four balances in by hand.') + '</div>' +
+          : 'Nothing to paste? Put the four balances in by hand.') + '</div>' +
       '<div class="btns"><button class="btn ghost" data-act="bal" style="flex:1">' +
         (anchorLocked() ? 'See the balances' : 'Set the balances') + '</button></div>';
 
@@ -2933,10 +2827,6 @@
     });
     openOv('ovSheet');
   }
-
-  document.getElementById('mRestore').addEventListener('click', function () {
-    closeOv('ovMenu'); openRestore();
-  });
 
   /* ---------------- nav ---------------- */
   document.getElementById('prev').addEventListener('click', function () { viewing = addDays(viewing, -1); render(); });
@@ -2998,7 +2888,7 @@
 
   /* Cold start only, deliberately. The lock is for a phone handed over with
      the app closed; coming back to one left open in the background does not
-     ask again. Lock now, in the menu, is the deliberate version of that.
+     ask again. Swiping the app closed is the deliberate version of that.
      Nothing renders until the PIN clears, so a locked app has not read a
      single day onto the screen. */
   if (pinIsSet()) showLock('enter');

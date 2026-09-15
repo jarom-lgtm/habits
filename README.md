@@ -33,22 +33,21 @@ Everything lives in one `localStorage` key on the phone. That is the whole
 point, and it has one consequence worth stating plainly: clearing the browser's
 site data erases the history.
 
-**Export for Claude** is for reading: the streak summary, and what was written
-on each day — the day's own note, the act on R, the name on N. The per-day
-point workings are deliberately not in it; they live in **Point and minute
-log**, which accounts for every movement. The export's last line is still a
-full JSON backup.
+**Notes** is one page of text: the date a note was written and the note under
+it, nothing else. The per-day point workings live in **Point and minute log**,
+which accounts for every movement. The Notes page's last line, below a divider,
+is a full JSON backup — so a copy of that page kept anywhere is the backup.
 
 ## Two ways back
 
 Losing this happens two ways, and they do not lose the same thing.
 
-- **Restore from a backup** takes a pasted export and replaces everything. It
-  needs an export to exist.
+- **Restore from a backup**, at the foot of the PIN lock sheet, takes a pasted
+  copy of the Notes page and replaces everything. It needs a copy to exist.
 - **Set the balances**, on the same sheet, takes just the four numbers — 8ANK,
   TH8NK, and the STOP Bank and Tank — as they stood at the start of a named day.
   It needs nothing but the numbers, which is the case that actually happens: a
-  wipe with no export, and the start dates re-entered by hand.
+  wipe with no copy, and the start dates re-entered by hand.
 
 No balance is stored anywhere; each is walked out of the entries every time it
 is asked for, which is what keeps them honest. Typed balances therefore cannot
