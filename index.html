@@ -867,11 +867,19 @@
      never the move that needs saving him from. */
   var PULL_MAX_PER_DAY = 9;
 
-  /* A perfect day: all eight green, nothing amber, nothing missed.
-     Read straight off the entries rather than off cardState, because the JUST8
-     card's state depends on the bank and the bonus is paid INTO the bank -
-     asking the balance whether it had earned a bonus would never settle. */
-  function perfectDay(dk) {
+  /* Two tiers of a good day, paid into two different reserves.
+
+     All green: every one of the eight shows a tick - nothing amber, nothing
+     missed. That is a point into the 8ANK. On FIT a single small unit is
+     still green; any mark on T is not.
+
+     Perfect: all green and no CupS. That is a point into the TH8NK as well.
+
+     Both are read straight off the entries rather than off cardState, because
+     the JUST8 card's state depends on the bank and the bonus is paid INTO the
+     bank - asking the balance whether it had earned a bonus would never
+     settle. */
+  function allGreen(dk) {
     var day = state.days[dk];
     if (!day) return false;
     for (var i = 0; i < HABITS.length; i++) {
@@ -883,11 +891,16 @@
         case 'STOP':     if (!e.logged || e.slip)  return false; break;
         case 'JUST8':    if (!e.eatStart || !e.eatEnd) return false; break;
         case 'WERKOUTS': if (!e.done) return false; break;
-        case 'FIT':      if (!e.logged || (e.items && Object.keys(e.items).length)) return false; break;
+        case 'FIT':      if (!e.logged || fitOver(e.items).spent) return false; break;
         default:         if (!e.done) return false; break;   // BED, RAK, NOTE
       }
     }
     return true;
+  }
+  function perfectDay(dk) {
+    if (!allGreen(dk)) return false;
+    var j = get(dk, 'JUST8');
+    return !(j && j.cupS);
   }
 
   /* ---------------- restored balances ----------------
@@ -1009,10 +1022,12 @@
       if (jCost) mv(res, dk, open ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
       if (fCost) mv(res, dk, open ? 'TH8NK' : '8ANK', -fCost, 'FIT cover');
 
-      /* A day where every one of the eight came up green earns a point. Only
-         entries are read here, never the derived misses - a bonus that fed
-         back into the balance it was computed from could not settle. */
-      if (perfectDay(dk)) { bank += 1; mv(res, dk, '8ANK', 1, 'perfect day'); }
+      /* A day where every one of the eight came up green earns a point, and a
+         perfect one earns a second into the TH8NK. Only entries are read here,
+         never the derived misses - a bonus that fed back into the balance it
+         was computed from could not settle. */
+      if (allGreen(dk))   { bank += 1; mv(res, dk, '8ANK',  1, 'all green'); }
+      if (perfectDay(dk)) { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
 
       /* Transfers are applied exactly as they were made. They used to be
          re-clamped here by whatever the balance happened to be at this point,
