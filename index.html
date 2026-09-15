@@ -322,6 +322,16 @@
   html.locked body > header, html.locked body > main,
   html.locked body > .overlay, html.locked body > .toast { display: none !important; }
 
+  /* A wiped copy is finished. It shows the closing numbers and nothing else,
+     until the app is deleted and installed again from the link. */
+  html.dead .lock.dead { display: flex; position: fixed; inset: 0; z-index: 100; background: var(--bg);
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 24px calc(24px + env(safe-area-inset-bottom)); }
+  html.dead body > header, html.dead body > main,
+  html.dead body > .overlay, html.dead #lockScreen { display: none !important; }
+  .lock.dead textarea { width: 100%; max-width: 420px; height: 48vh; margin: 0 0 14px; }
+  .lock.dead .btns { width: 100%; max-width: 420px; }
+
   .lock .lockttl { font-size: 17px; font-weight: 650; margin-bottom: 5px; }
   .lock .locksub {
     font-size: 12.5px; color: var(--dim); margin-bottom: 26px;
@@ -387,6 +397,13 @@
     <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
     <button class="flat" data-k="c">Clear</button><button data-k="0">0</button><button class="flat" data-k="b">&#9003;</button>
   </div>
+</div>
+
+<div class="lock dead" id="deadScreen">
+  <div class="lockttl">This copy is finished</div>
+  <div class="locksub">Copy the closing numbers below. Then delete CHECK from the home screen and install it again from the link to begin fresh. Nothing here can be changed.</div>
+  <textarea id="deadText" readonly></textarea>
+  <div class="btns"><button class="btn go" id="deadCopy" style="flex:1">Copy</button></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -627,6 +644,8 @@
         state.startsLocked = p.startsLocked || {};
         state.dayNotes = p.dayNotes || {};
         state.prior  = p.prior || {};
+        state.wiped  = !!p.wiped;
+        state.closing = p.closing || '';
         state.demo   = !!p.demo;
         if (Array.isArray(p.rakList)) state.rakList = p.rakList;
         state.demoSeed = p.demoSeed;
@@ -2804,28 +2823,25 @@
       if (!armed) { _armWipe = Date.now(); openStartOver(); return; }
       _armWipe = 0;
       var closing = buildClosing();               // read before the wipe, shown after it
-      wipeAll();
-      openClosing(closing);
+      /* Everything goes, and the copy is marked finished. It is not a fresh
+         app afterwards - no start dates to enter, no balances to set - so the
+         way to begin again is a new install from the link, not this one. The
+         closing numbers are the one thing kept, behind the PIN, so they can
+         still be copied from here until the app is deleted. */
+      state = { wiped: true, closing: closing, starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
+      HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
+      _j8 = null; _stop = null;
+      save(); closeOv('ovSheet'); closeOv('ovMenu');
+      showDead();
     });
     openOv('ovSheet');
   }
 
-  function openClosing(text) {
-    var copied = false;
-    sheetEl.innerHTML = head('Closing numbers', 'Shown once - copy before closing') +
-      '<textarea id="clText" readonly></textarea>' +
-      '<div class="note">These are not kept anywhere. Copy them now and type them into the new copy on the Start dates and history sheet and the Set the balances sheet.</div>' +
-      '<div class="btns"><button class="btn ghost" data-act="x">Close</button><button class="btn go" data-act="copy">Copy</button></div>';
-    document.getElementById('clText').value = text;
-    sheetEl.querySelector('[data-act="copy"]').addEventListener('click', function () {
-      copyText('clText', function () { copied = true; });
-    });
-    sheetEl.querySelector('[data-act="x"]').addEventListener('click', function () {
-      if (!copied) { toast('Copy first - this page is not shown again'); return; }
-      closeOv('ovSheet');
-    });
-    openOv('ovSheet');
+  function showDead() {
+    document.getElementById('deadText').value = state.closing || '';
+    document.documentElement.classList.add('dead');
   }
+  document.getElementById('deadCopy').addEventListener('click', function () { copyText('deadText'); });
 
   /* ---------------- balances by hand ----------------
      The way back after a wipe: the four numbers as they stood at the start of
@@ -3018,6 +3034,7 @@
   migrateAnchor();
 
   function bootApp() {
+    if (state.wiped && !SANDBOX) { showDead(); return; }
     // The sandbox arrives already full - an empty practice app shows nothing.
     /* Reseed when the stored sample predates the current one, so a sandbox
        visited before an update does not sit on stale data with no sign of it. */

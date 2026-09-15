@@ -41,15 +41,17 @@ where the numbers stand.
 
 ## Starting over
 
-**Start over**, at the foot of the PIN lock sheet, wipes everything. The moment
-it has, it shows the **closing numbers** once — the exact four balances, and
-for each habit its original start, the day its current run began, its misses
-and its longest run — and will not close until they have been copied. That is
+**Start over**, at the foot of the PIN lock sheet, wipes everything, and the
+copy is finished: from then on it shows only the **closing numbers** — the
+exact four balances, and for each habit its original start, the day its
+current run began, its misses and its longest run — with a Copy button, behind
+the PIN. Nothing on that copy can be set up again; beginning fresh means
+deleting it from the home screen and installing again from the link. That is
 the only time the exact TH8NK and Tank are ever shown; the rest of the time
 they read as a ceiling ("18+", "11+"), so there is no way to peek at them
 without giving up the history they came from.
 
-A fresh copy takes those numbers back by hand:
+A fresh install takes those numbers back by hand:
 
 - **Start dates and history** takes, per habit, the original start, the day
   the current run began, and the misses and longest run from before this copy.
