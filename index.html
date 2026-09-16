@@ -224,12 +224,9 @@
      when the moment was missed. Tapping it swaps itself for the picker. */
   .setcol { flex: 1; min-width: 0; }
   .btn.tiny { width: 100%; height: 34px; font-size: 12.5px; font-weight: 560; background: var(--card-hi); color: var(--dim); }
-  .timeedit { display: none; height: 44px; }
-  .setcol.open .btn.tiny { display: none; }
-  .setcol.open .timeedit { display: block; }
-  /* JUST8's by-hand time: three plain dropdowns and a confirm, no clock wheel.
-     The wheel reported a value the instant it moved, and with the start
-     one-way that was a trap. Nothing here lands until the confirm is tapped. */
+  /* A by-hand time is three plain dropdowns and a confirm, no clock wheel.
+     The wheel reported a value the instant it moved, and with the eating
+     start one-way that was a trap. Nothing lands until the confirm is tapped. */
   .tpick { display: none; margin-top: 8px; }
   .tpick.open { display: block; }
   .tprow { display: flex; gap: 8px; }
@@ -1566,6 +1563,20 @@
     return '<button class="btn go" data-act="close">Done</button>';
   }
 
+  /* One picker, shared by every by-hand time. It carries the field it is
+     setting in data-field, so the tap handlers need not know which sheet. */
+  function tpickHtml() {
+    return '<div class="tpick" id="tpick">' +
+      '<div class="tprow">' +
+        '<select data-tp="h">' + [1,2,3,4,5,6,7,8,9,10,11,12].map(function (h) { return '<option value="' + h + '">' + h + '</option>'; }).join('') + '</select>' +
+        '<select data-tp="m">' + Array.apply(null, Array(60)).map(function (_, m) { var t = (m < 10 ? '0' : '') + m; return '<option value="' + t + '">' + t + '</option>'; }).join('') + '</select>' +
+        '<select data-tp="ap"><option value="AM">AM</option><option value="PM">PM</option></select>' +
+      '</div>' +
+      '<button class="btn go" data-act="tpok" style="width:100%;margin-top:8px">Tap to confirm</button>' +
+      '<button class="btn ghost" data-act="tpcancel" style="width:100%;margin-top:6px">Cancel</button>' +
+    '</div>';
+  }
+
   function openSheet(dk, id) {
     if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) {
       toast(id + ' starts ' + state.starts[id]); return;
@@ -1735,11 +1746,9 @@
              the phone goes down and does not come back up to be tapped, and
              the time that mattered is remembered rather than stamped. */
           '<div class="btns" style="margin-top:9px">' +
-            '<div class="setcol">' +
-              '<button class="btn tiny" data-act="settime">Set time</button>' +
-              '<input type="time" class="timeedit" data-field="bed" value="' + (e.bed || '') + '">' +
-            '</div>' +
+            '<div class="setcol"><button class="btn tiny" data-act="tpick" data-field="bed">Set time</button></div>' +
           '</div>' +
+          tpickHtml() +
           '<div class="note" style="margin:8px 0 0">' + bedLine + '</div>' +
         '</div>' +
         '<div class="field"><div class="chips">' +
@@ -1806,15 +1815,7 @@
               : '<div class="setcol"><button class="btn tiny" data-act="tpick" data-field="eatStart">Set time</button></div>') +
             '<div class="setcol"><button class="btn tiny" data-act="tpick" data-field="eatEnd">Set time</button></div>' +
           '</div>' +
-          '<div class="tpick" id="tpick">' +
-            '<div class="tprow">' +
-              '<select data-tp="h">' + [1,2,3,4,5,6,7,8,9,10,11,12].map(function (h) { return '<option value="' + h + '">' + h + '</option>'; }).join('') + '</select>' +
-              '<select data-tp="m">' + Array.apply(null, Array(60)).map(function (_, m) { var t = (m < 10 ? '0' : '') + m; return '<option value="' + t + '">' + t + '</option>'; }).join('') + '</select>' +
-              '<select data-tp="ap"><option value="AM">AM</option><option value="PM">PM</option></select>' +
-            '</div>' +
-            '<button class="btn go" data-act="tpok" style="width:100%;margin-top:8px">Tap to confirm</button>' +
-            '<button class="btn ghost" data-act="tpcancel" style="width:100%;margin-top:6px">Cancel</button>' +
-          '</div>' +
+          tpickHtml() +
           (e.eatStart && e.eatEnd
             ? '<div class="note" style="margin:10px 0 0">Window <b>' + fmt(Math.round(h8 * 4) / 4) + ' h</b>' +
               (over8 > 0
@@ -2115,22 +2116,8 @@
           e.logged = true; commit(true);
           toast('Tank locked until ' + shortDate(stop().lockUntil)); return;
         }
-        /* Opens a native time control rather than stamping the clock. On the
-           phone that is the wheel; anywhere with a keyboard it can be typed.
-           Unlike the stamp it will overwrite a time already there - setting one
-           by hand is deliberate in a way a stray tap is not. */
-        if (a === 'settime') {
-          var col = b.parentNode;
-          col.classList.add('open');
-          var tin = col.querySelector('input[type=time]');
-          if (tin) {
-            tin.focus();
-            if (tin.showPicker) { try { tin.showPicker(); } catch (err) {} }
-          }
-          return;
-        }
-        /* The JUST8 picker. Open it on the current value, or the clock if
-           there is none; the confirm button says what it is about to do. */
+        /* The by-hand time picker. Open it on the current value, or the clock
+           if there is none; the confirm button says what it is about to do. */
         if (a === 'tpick') {
           var tp = document.getElementById('tpick'), f0 = b.getAttribute('data-field');
           tp.setAttribute('data-field', f0);
@@ -2144,6 +2131,13 @@
         if (a === 'tpok') {
           var f1 = document.getElementById('tpick').getAttribute('data-field'), v1 = tpValue();
           if (f1 === 'eatStart' && e.eatStart) { toast('Already started at ' + e.eatStart); return; }
+          /* bed is not a plain field - the time it is set to decides M's grade
+             and what it costs, exactly as the stamp does. */
+          if (f1 === 'bed') {
+            applyBed(e, v1); commit(true);
+            var bg1 = bedGrade(bedMinutesOver(e.bed));
+            toast(bg1 ? 'M-' + bg1 + ' recorded' : 'Nothing counted'); return;
+          }
           e[f1] = v1; commit(true); return;
         }
         if (a === 'eatstart') {
@@ -2200,25 +2194,10 @@
       if (!tp) return;
       var f = tp.getAttribute('data-field');
       tp.querySelector('[data-act="tpok"]').textContent =
-        'Set ' + (f === 'eatStart' ? 'start' : 'stop') + ' to ' + tpValue() + ' — tap to confirm';
+        'Set ' + (f === 'eatStart' ? 'start' : f === 'eatEnd' ? 'stop' : 'phone down') + ' to ' + tpValue() + ' — tap to confirm';
     }
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-tp]'), function (sel) {
       sel.addEventListener('change', tpLabel);
-    });
-
-    /* Written on change rather than on every keystroke, so a half-typed hour
-       never lands in the record. */
-    Array.prototype.forEach.call(sheetEl.querySelectorAll('.timeedit'), function (t) {
-      t.addEventListener('change', function () {
-        if (locked) { toast('That day is finalized'); return; }
-        if (!t.value) return;
-        var f = t.getAttribute('data-field');
-        /* bed is not a plain field - the time it is set to decides M's grade
-           and what it costs, exactly as the stamp does. */
-        if (f === 'eatStart' && e.eatStart) { toast('Already started at ' + e.eatStart); return; }
-        if (f === 'bed') applyBed(e, t.value); else e[f] = t.value;
-        commit(true);
-      });
     });
 
     Array.prototype.forEach.call(sheetEl.querySelectorAll('[data-werk]'), function (b) {
