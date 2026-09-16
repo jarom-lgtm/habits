@@ -900,7 +900,9 @@
      missed. That is a point into the 8ANK. On FIT a single small unit is
      still green; any mark on T is not.
 
-     Perfect: all green and no CupS. That is a point into the TH8NK as well.
+     Perfect: all green, nothing at all marked on FIT - all five letters
+     clear, not merely inside the allowance - and no CupS. That is a point
+     into the TH8NK as well.
 
      Both are read straight off the entries rather than off cardState, because
      the JUST8 card's state depends on the bank and the bonus is paid INTO the
@@ -926,7 +928,8 @@
   }
   function perfectDay(dk) {
     if (!allGreen(dk)) return false;
-    var j = get(dk, 'JUST8');
+    var j = get(dk, 'JUST8'), f = get(dk, 'FIT');
+    if (f && f.items && Object.keys(f.items).length) return false;
     return !(j && j.cupS);
   }
 
