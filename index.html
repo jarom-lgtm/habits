@@ -1759,7 +1759,12 @@
             var v = items[f] || '';
             return '<button class="chip' + (v ? ' ' + v : '') + '" data-fit="' + f + '">' + f + (v ? '-' + v : '') + '</button>';
           }).join('') +
-        '</div></div>' +
+        '</div>' +
+          /* The sizes, said where they are used. Not a rule the app enforces -
+             the letters are tapped by hand - but the agreement the taps rest
+             on, kept in view so it cannot drift. */
+          '<div class="note" style="margin:8px 0 0">3 min = <b>u</b> &nbsp;&middot;&nbsp; 1 hr = <b>U</b></div>' +
+        '</div>' +
         (tally.over
           ? (tally.blown
               ? '<div class="warnbox">An <b>X</b> is a blown day. Mark it missed.</div>'
