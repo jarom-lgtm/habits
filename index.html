@@ -893,6 +893,7 @@
      Deposits the other way are deliberately uncapped. Putting points away is
      never the move that needs saving him from. */
   var PULL_MAX_PER_DAY = 9;
+  var _armThankFreeze = 0;                       // first tap on a same-day TH8NK freeze; the second within 8s does it
 
   /* Two tiers of a good day, paid into two different reserves.
 
@@ -1046,11 +1047,15 @@
 
       /* On a TH8NK day the day's spending comes out of the TH8NK, which is the
          whole point of marking one - a reserve that is not actually drawn on
-         while travelling is just a number sitting in a corner. */
+         while travelling is just a number sitting in a corner. A freeze shuts
+         that off for the rest of the day: the day stays marked Travel or
+         Holiday, it just stops paying out of the TH8NK, and spend lands on
+         the 8ANK the same way it would on any ordinary day. */
+      var spendOpen = open && !(e && e.thankFreeze);
       var jCost = j8DayCost(e), fCost = fitPtsOn(dk), spend = jCost + fCost;
-      if (open) th -= spend; else bank -= spend;
-      if (jCost) mv(res, dk, open ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
-      if (fCost) mv(res, dk, open ? 'TH8NK' : '8ANK', -fCost, 'FIT cover');
+      if (spendOpen) th -= spend; else bank -= spend;
+      if (jCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
+      if (fCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -fCost, 'FIT cover');
 
       /* A day where every one of the eight came up green earns a point, and a
          perfect one earns a second into the TH8NK. Only entries are read here,
@@ -1800,6 +1805,9 @@
 
     else if (id === 'JUST8') {
       var h8 = windowHours(e), m8 = windowMinutes(e), over8 = Math.max(0, m8 - WINDOW_MIN);
+      var thankFreezeArmed = (_armThankFreeze && Date.now() - _armThankFreeze < 8000);
+      var thankFrozen = !!e.thankFreeze;
+      var isTodayJ8 = (dk === key(today));
       html = head('JUST8', when) +
         /* The TH8NK balance only appears on a day it can actually be reached.
            A reserve you cannot touch is not information, it is temptation. */
@@ -1932,8 +1940,8 @@
               /* Spent for the day it says so on the button. A control that
                  looks live and then refuses reads as a fault, not a rule. */
               '<button class="btn ghost" data-act="thank3" style="width:100%' +
-                (((e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
-                (((e.thankPull || 0) >= PULL_MAX_PER_DAY) ? 'Pulled today' : 'Pull 3 &rarr; +1') +
+                ((thankFrozen || (e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
+                (thankFrozen ? 'Frozen today' : ((e.thankPull || 0) >= PULL_MAX_PER_DAY ? 'Pulled today' : 'Pull 3 &rarr; +1')) +
               '</button>' +
             '</div>' +
             '<div style="flex:1">' +
@@ -1941,6 +1949,18 @@
               '<button class="btn ghost" data-act="dep3" style="width:100%">Deposit 3 &rarr; +4</button>' +
             '</div>' +
           '</div>' +
+          /* A same-day brake on the TH8NK, same shape as the one on the Tank:
+             blocks anything more leaving it for the rest of today, deposits
+             still land, and it wears off on its own at midnight. Offered only
+             on today's card - freezing a past day means nothing. */
+          (isTodayJ8
+            ? (thankFrozen
+                ? '<div class="note" style="margin-top:8px">TH8NK frozen for the rest of today.</div>'
+                : '<div class="btns" style="margin-top:8px"><button class="btn ' + (thankFreezeArmed ? 'danger' : 'ghost') + '" data-act="thankfreeze" style="flex:1">' +
+                  (thankFreezeArmed
+                    ? 'Tap again to freeze the TH8NK for the rest of today'
+                    : 'Freeze the TH8NK for today') + '</button></div>')
+            : '') +
         '</div>' +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
@@ -2194,6 +2214,7 @@
         if (a === 'tclear')  { e.travPick = ''; e.trav = ''; e.travWho = ''; e.travWhat = ''; commit(true); return; }
 
         if (a === 'thank3') {
+          if (e.thankFreeze) { toast('TH8NK frozen for today'); return; }
           if ((e.thankPull || 0) >= PULL_MAX_PER_DAY) {
             toast('That is the day\'s limit - ' + PULL_MAX_PER_DAY + ' out, ' +
                   (PULL_MAX_PER_DAY / 3) + ' in'); return;
@@ -2206,6 +2227,14 @@
           if (bank8On(dk) < 3) { toast('Need 3 in the 8ANK'); return; }
           e.thankDep = (e.thankDep || 0) + 3;
           commit(true); toast('Deposited 3, landed as 4'); return;
+        }
+        if (a === 'thankfreeze') {
+          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
+          if (!(_armThankFreeze && Date.now() - _armThankFreeze < 8000)) { _armThankFreeze = Date.now(); openSheet(dk, id); return; }
+          _armThankFreeze = 0;
+          e.thankFreeze = 1;
+          e.logged = true; commit(true);
+          toast('TH8NK frozen for the rest of today'); return;
         }
       });
     });
