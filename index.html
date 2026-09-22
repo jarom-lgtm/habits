@@ -1786,11 +1786,11 @@
              the rest of today. */
           (tankOpen() && isToday
             ? (frozen
-                ? '<div class="note" style="margin-top:8px">Withdrawals frozen for the rest of today.</div>'
+                ? '<div class="note" style="margin-top:8px">Tank frozen for the rest of today.</div>'
                 : '<div class="btns" style="margin-top:8px"><button class="btn ' + (freezeArmed ? 'danger' : 'ghost') + '" data-act="tankfreeze" style="flex:1">' +
                   (freezeArmed
-                    ? 'Tap again to freeze withdrawals for the rest of today'
-                    : 'Freeze withdrawals for today') + '</button></div>')
+                    ? 'Tap again to freeze the Tank for the rest of today'
+                    : 'Freeze the Tank for today') + '</button></div>')
             : '') +
           /* Said where the decision is made, and only when there is something
              in there to lose. The rule is easy to forget precisely because it
@@ -2217,7 +2217,7 @@
               : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
             return;
           }
-          if (e.tankFreeze) { toast('Withdrawals frozen for today'); return; }
+          if (e.tankFreeze) { toast('Tank frozen for today'); return; }
           if (stopTankOn(dk) < 1) { toast('Nothing in the Tank'); return; }
           e.fromTank = (e.fromTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
@@ -2237,7 +2237,7 @@
           _armFreeze = 0;
           e.tankFreeze = 1;
           e.logged = true; commit(true);
-          toast('Withdrawals frozen for the rest of today'); return;
+          toast('Tank frozen for the rest of today'); return;
         }
         if (a === 'stopbankfreeze') {
           if (dk !== key(today)) { toast('Only today can be frozen'); return; }
