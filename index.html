@@ -894,6 +894,7 @@
      never the move that needs saving him from. */
   var PULL_MAX_PER_DAY = 9;
   var _armThankFreeze = 0;                       // first tap on a same-day TH8NK freeze; the second within 8s does it
+  var _armBankFreeze = 0;                        // first tap on a same-day 8ANK freeze; the second within 8s does it
 
   /* Two tiers of a good day, paid into two different reserves.
 
@@ -1057,6 +1058,12 @@
       if (jCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
       if (fCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -fCost, 'FIT cover');
 
+      /* Freezing the 8ANK does not stop a cost from happening - it stops the
+         8ANK from being any help absorbing one. Treated as though it opened
+         the day at zero: any spend that lands there while frozen is a miss
+         no matter what the real balance could have covered. */
+      var bankFrozenMiss = !spendOpen && spend > 0 && !!(e && e.bankFreeze);
+
       /* A day where every one of the eight came up green earns a point, and a
          perfect one earns a second into the TH8NK. Only entries are read here,
          never the derived misses - a bonus that fed back into the balance it
@@ -1088,7 +1095,7 @@
          deliberate act, so the app leaves the 8ANK short and lets him decide -
          a rescue he did not ask for is a decision taken away from him. */
 
-      res.misses[dk] = (bank < 0);                // nothing left to reach for
+      res.misses[dk] = (bank < 0) || bankFrozenMiss;   // nothing left to reach for
       res.closing[dk] = { bank: bank, th: th };
       d = addDays(d, 1);
     }
@@ -1807,6 +1814,8 @@
       var h8 = windowHours(e), m8 = windowMinutes(e), over8 = Math.max(0, m8 - WINDOW_MIN);
       var thankFreezeArmed = (_armThankFreeze && Date.now() - _armThankFreeze < 8000);
       var thankFrozen = !!e.thankFreeze;
+      var bankFreezeArmed = (_armBankFreeze && Date.now() - _armBankFreeze < 8000);
+      var bankFrozen = !!e.bankFreeze;
       var isTodayJ8 = (dk === key(today));
       html = head('JUST8', when) +
         /* The TH8NK balance only appears on a day it can actually be reached.
@@ -1960,6 +1969,18 @@
                   (thankFreezeArmed
                     ? 'Tap again to freeze the TH8NK for the rest of today'
                     : 'Freeze the TH8NK for today') + '</button></div>')
+            : '') +
+          /* The 8ANK's own brake, separate from the TH8NK's. It does not stop
+             a cost from happening - there is nowhere else for it to go - it
+             just stops the 8ANK from being able to absorb one: frozen, any
+             cost the rest of today is a miss, the same as an empty balance. */
+          (isTodayJ8
+            ? (bankFrozen
+                ? '<div class="note" style="margin-top:8px">8ANK frozen for the rest of today - any cost now is a miss.</div>'
+                : '<div class="btns" style="margin-top:8px"><button class="btn ' + (bankFreezeArmed ? 'danger' : 'ghost') + '" data-act="bankfreeze" style="flex:1">' +
+                  (bankFreezeArmed
+                    ? 'Tap again to freeze the 8ANK for the rest of today'
+                    : 'Freeze the 8ANK for today') + '</button></div>')
             : '') +
         '</div>' +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
@@ -2235,6 +2256,14 @@
           e.thankFreeze = 1;
           e.logged = true; commit(true);
           toast('TH8NK frozen for the rest of today'); return;
+        }
+        if (a === 'bankfreeze') {
+          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
+          if (!(_armBankFreeze && Date.now() - _armBankFreeze < 8000)) { _armBankFreeze = Date.now(); openSheet(dk, id); return; }
+          _armBankFreeze = 0;
+          e.bankFreeze = 1;
+          e.logged = true; commit(true);
+          toast('8ANK frozen for the rest of today'); return;
         }
       });
     });
