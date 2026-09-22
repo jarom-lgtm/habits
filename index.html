@@ -601,13 +601,11 @@
     if (mins < 60) return 'uu';
     return 'U';
   }
-  // A quarter point per quarter hour past 1, rather than a whole point for
-  // any part of one - so 2:30 is 1.5, not 2.5. M is charged at a point an
-  // hour; the eating window runs at half that rate, so the two no longer
-  // share a scale.
+  // A whole point for any part of an hour past 1, not a quarter per quarter
+  // hour - so 2:30 costs 2, not 1.5. The first hour stays free.
   function bedPoints(mins) {
     if (mins === null || mins <= 60) return 0;
-    return Math.ceil(((mins - 60) / 60) * 4) / 4;
+    return Math.ceil((mins - 60) / 60);
   }
 
   /* The time decides the grade and the points, and nothing else does. There
