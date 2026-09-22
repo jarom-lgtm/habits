@@ -747,6 +747,7 @@
     if (id === 'STOP') return !!e.miss;          // set when the bank goes below zero
     if (id === 'H2Only') return !!e.broke;       // the tap itself is the break
     if (id === 'JUST8') return !!e.miss || !!e.bankMiss;  // by hand, or both banks spent
+    if (id === 'FIT') return !!e.miss || !!e.tankMiss;    // by hand, or the Tank came up short overnight
     return !!e.miss;
   }
 
@@ -856,16 +857,11 @@
     return Math.ceil(c * 4) / 4;
   }
 
-  /* The FIT cover is paid out of the same 8ANK as the cups and the hours, so a
-     day's cost is one number, not two. The balance always charged both; it was
-     only the line on the JUST8 sheet that left FIT out, which made a correct
-     balance look like an arithmetic error. Both now read from here, and from
-     the stamped time rather than a figure stored beside it - so a change to
-     what a late night costs reaches every night on record, the way every
-     other rule here does. */
+  /* What a late night costs, read from the stamped time rather than a figure
+     stored beside it - so a change to what M costs reaches every night on
+     record, the way every other rule here does. Paid out of the STOP Tank,
+     not the JUST8 economy - see stop(). */
   function fitPtsOn(dk) { var f = get(dk, 'FIT'); return (f && f.bed) ? bedPoints(bedMinutesOver(f.bed)) : 0; }
-  function dayPointCost(dk) { return j8DayCost(get(dk, 'JUST8')) + fitPtsOn(dk);
-  }
 
   /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
      the three can never drift apart.
@@ -1051,12 +1047,13 @@
          while travelling is just a number sitting in a corner. A freeze shuts
          that off for the rest of the day: the day stays marked Travel or
          Holiday, it just stops paying out of the TH8NK, and spend lands on
-         the 8ANK the same way it would on any ordinary day. */
+         the 8ANK the same way it would on any ordinary day. FIT's late-night
+         cost no longer runs through here at all - it is paid straight out of
+         the STOP Tank instead, in stop() below. */
       var spendOpen = open && !(e && e.thankFreeze);
-      var jCost = j8DayCost(e), fCost = fitPtsOn(dk), spend = jCost + fCost;
+      var jCost = j8DayCost(e), spend = jCost;
       if (spendOpen) th -= spend; else bank -= spend;
       if (jCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
-      if (fCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -fCost, 'FIT cover');
 
       /* Freezing the 8ANK does not stop a cost from happening - it stops the
          8ANK from being any help absorbing one. Treated as though it opened
@@ -1171,7 +1168,7 @@
 
   function stop() {
     if (_stop) return _stop;
-    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, misses: {}, short: {}, opening: {}, closing: {}, log: {} };
+    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, misses: {}, short: {}, fitShort: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.STOP);
     var bank = 0, tank = 0, clean = 0, lockUntil = null;
     var anc = anchor();
@@ -1209,6 +1206,25 @@
       /* A lock is eight days from the day it was tapped. It moves no minutes,
          so it is not a log line - it shows on the card. */
       if (e && e.tankLock) lockUntil = addDays(d, TANK_LOCK_DAYS);
+
+      /* FIT's late-bedtime cost is paid straight out of the Tank, not the
+         Bank - a Tank freeze does not reach it, only the deliberate
+         withdrawal does. A shortfall here is FIT's miss, not STOP's: the
+         Tank cannot pay what was never in it, so whatever is there is taken
+         and the rest is simply short, written off the same way any other
+         reserve shortfall is. */
+      var fitCost = fitPtsOn(dk);
+      res.fitShort[dk] = false;
+      if (fitCost) {
+        if (tank >= fitCost) {
+          tank -= fitCost;
+          mv(res, dk, 'Tank', -fitCost, 'FIT - past midnight');
+        } else {
+          if (tank > 0) mv(res, dk, 'Tank', -tank, 'FIT - past midnight, Tank came up short');
+          res.fitShort[dk] = true;
+          tank = 0;
+        }
+      }
 
       var miss = bank < 0;
       res.misses[dk] = miss;
@@ -1251,6 +1267,21 @@
   function stopTankOn(dk) { var c = stop().closing[dk]; return c ? c.tank : 0; }
   function tankReached() { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
   function tankOpen()  { return tankReached() && !stop().lockUntil; }
+  function fitTankShortOn(dk) { return !!stop().fitShort[dk]; }
+
+  /* FIT's own miss, computed from the Tank walk rather than set by hand -
+     the same shape as STOP and JUST8's automatic misses just below. */
+  function refreshFitTankMisses() {
+    var s = stop().fitShort, changed = false;
+    Object.keys(s).forEach(function (dk) {
+      var e = get(dk, 'FIT');
+      if (!!(e && e.tankMiss) === !!s[dk]) return;
+      entry(dk, 'FIT', true).tankMiss = !!s[dk];
+      prune(dk, 'FIT');
+      changed = true;
+    });
+    if (changed) save();
+  }
 
   /* Write the computed misses onto the days they happened, so the streak
      breaks on the right date rather than only showing as a total. */
@@ -1359,6 +1390,7 @@
   function render() {
     refreshStopMisses();
     refreshJ8Misses();
+    refreshFitTankMisses();
     var dk = key(viewing);
 
     document.getElementById('dayBig').textContent = labelFor(viewing);
@@ -1752,13 +1784,15 @@
       var tally = fitOver(items);
       var mins = bedMinutesOver(e.bed);
 
+      var fitShort = fitTankShortOn(dk);
       var bedLine;
       if (!e.bed) bedLine = 'Not stamped yet.';
       else if (mins <= 0) bedLine = 'Phone down at <b>' + e.bed + '</b> &mdash; nothing counted.';
       else bedLine = 'Phone down at <b>' + e.bed + '</b> &mdash; ' +
              (mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' : mins + ' min') +
              ' past 12, so <b>M-' + bedGrade(mins) + '</b>' +
-             (bedPoints(mins) ? ' and <b>' + bedPoints(mins) + ' pt</b> from the 8ANK' : '') + '.';
+             (bedPoints(mins) ? ' and <b>' + bedPoints(mins) + ' pt</b> from the Tank' +
+               (fitShort ? ' &mdash; the Tank came up short, so this is a miss' : '') : '') + '.';
 
       html = head('FIT', when) +
         '<div class="field"><label>Phone down for the night</label>' +
@@ -1822,10 +1856,7 @@
            A reserve you cannot touch is not information, it is temptation. */
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
           (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmtThank() + '</b>' : '') +
-          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(dayPointCost(dk)) + ' pt</b>' +
-          (fitPtsOn(dk)
-            ? '<span style="opacity:.65"> (' + fmt(j8DayCost(e)) + ' here + ' + fmt(fitPtsOn(dk)) + ' covering FIT)</span>'
-            : '') + '</div>' +
+          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e)) + ' pt</b>' + '</div>' +
         (bank8() < 0
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
             'pull from the TH8NK to cover it, up to ' + PULL_MAX_PER_DAY + ' out a day, or the day is a miss.</div>'
