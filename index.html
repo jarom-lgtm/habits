@@ -1145,7 +1145,8 @@
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
   var TANK_UNLOCK_DAYS = 30;
   var _armLock = 0;                              // first tap on the lock; the second within 8s does it
-  var _armFreeze = 0;                            // first tap on a same-day freeze; the second within 8s does it
+  var _armFreeze = 0;                            // first tap on a same-day Tank freeze; the second within 8s does it
+  var _armStopBankFreeze = 0;                    // first tap on a same-day Bank freeze; the second within 8s does it
   /* Once the thirty are in hand the Tank can be locked again, by choice, for
      eight days. The moment of reaching it is the moment with the most resolve
      in it, and this is a way to spend that resolve on the next stretch rather
@@ -1226,15 +1227,23 @@
         }
       }
 
-      var miss = bank < 0;
+      /* Freezing the Bank does not stop a slip from costing what it costs -
+         it stops the Bank from being any help absorbing one. Treated as
+         though it opened the day at zero: any slip at all while frozen is a
+         miss no matter what the real balance could have covered. */
+      var bankFreezeMiss = !!(e && e.slip && (e.min || 0) > 0 && e.bankFreeze);
+
+      var numericMiss = bank < 0;
+      var miss = numericMiss || bankFreezeMiss;
       res.misses[dk] = miss;
-      if (miss) res.short[dk] = -bank;             // how far under, before the write-off
+      if (numericMiss) res.short[dk] = -bank;      // how far under, before the write-off
 
       /* The miss IS the penalty, so the debt is written off with it and the
          next day opens at zero. Carrying a negative forward charged the same
          slip again every morning until it had been earned back, which turned
-         one bad night into a fortnight of failures. */
-      if (miss) {
+         one bad night into a fortnight of failures. A freeze-only miss has no
+         real debt behind it - the balance stands as it actually is. */
+      if (numericMiss) {
         mv(res, dk, 'Bank', -bank, 'debt written off with the miss');
         bank = 0;
       }
@@ -1708,6 +1717,8 @@
       var lockArmed = (_armLock && Date.now() - _armLock < 8000);
       var freezeArmed = (_armFreeze && Date.now() - _armFreeze < 8000);
       var frozen = !!e.tankFreeze;
+      var bankFreezeArmed = (_armStopBankFreeze && Date.now() - _armStopBankFreeze < 8000);
+      var bankFrozen = !!e.bankFreeze;
       var isToday = (dk === key(today));
       html = head('STOP', when) +
         /* Clean days are counted separately from the streak and cannot touch
@@ -1715,6 +1726,19 @@
            carries on untouched - only a Bank below zero breaks that. */
         '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmtTank() + ' min</b>' +
           ' &nbsp;&middot;&nbsp; <b>' + stop().cleanRun + '</b> clean day' + (stop().cleanRun === 1 ? '' : 's') + '</div>' +
+        /* The Bank's own brake, separate from the Tank's. It does not stop a
+           slip from costing what it costs - it just stops the Bank from
+           being able to absorb one: frozen, any slip the rest of today is a
+           miss, the same as an empty balance. Offered only on today's card,
+           and wears off on its own at midnight. */
+        (isToday
+          ? (bankFrozen
+              ? '<div class="note" style="margin:4px 0 10px">Bank frozen for the rest of today - any slip now is a miss.</div>'
+              : '<div class="btns" style="margin:4px 0 10px"><button class="btn ' + (bankFreezeArmed ? 'danger' : 'ghost') + '" data-act="stopbankfreeze" style="flex:1">' +
+                (bankFreezeArmed
+                  ? 'Tap again to freeze the Bank for the rest of today'
+                  : 'Freeze the Bank for today') + '</button></div>')
+          : '') +
         // A slip is not a miss - the bank absorbs it. Calling it one was wrong.
         '<div class="btns" style="margin-bottom:14px">' +
           '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Good</button>' +
@@ -2214,6 +2238,14 @@
           e.tankFreeze = 1;
           e.logged = true; commit(true);
           toast('Withdrawals frozen for the rest of today'); return;
+        }
+        if (a === 'stopbankfreeze') {
+          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
+          if (!(_armStopBankFreeze && Date.now() - _armStopBankFreeze < 8000)) { _armStopBankFreeze = Date.now(); openSheet(dk, id); return; }
+          _armStopBankFreeze = 0;
+          e.bankFreeze = 1;
+          e.logged = true; commit(true);
+          toast('Bank frozen for the rest of today'); return;
         }
         /* The by-hand time picker. Open it on the current value, or the clock
            if there is none; the confirm button says what it is about to do. */
