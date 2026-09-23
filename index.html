@@ -855,6 +855,20 @@
     return Math.ceil(c * 4) / 4;
   }
 
+  /* How much of today's cost is currently landing on the 8ANK - shared by
+     the walk and by the 8ANK freeze's own snapshot, so tapping that freeze
+     locks in exactly what the walk would say right now. A TH8NK freeze
+     protects only what it had already taken in by the moment it was
+     tapped; anything past that snapshot falls to the 8ANK same as if the
+     day were never open at all. */
+  function j8OnBank(e, open) {
+    var jCost = j8DayCost(e);
+    if (!open) return jCost;
+    if (!(e && e.thankFreeze)) return 0;
+    var onThank = Math.min(jCost, +(e && e.thankFreezeSnap) || 0);
+    return jCost - onThank;
+  }
+
   /* What a late night costs, read from the stamped time rather than a figure
      stored beside it - so a change to what M costs reaches every night on
      record, the way every other rule here does. Paid out of the STOP Tank,
@@ -1043,21 +1057,27 @@
       /* On a TH8NK day the day's spending comes out of the TH8NK, which is the
          whole point of marking one - a reserve that is not actually drawn on
          while travelling is just a number sitting in a corner. A freeze shuts
-         that off for the rest of the day: the day stays marked Travel or
-         Holiday, it just stops paying out of the TH8NK, and spend lands on
-         the 8ANK the same way it would on any ordinary day. FIT's late-night
-         cost no longer runs through here at all - it is paid straight out of
-         the STOP Tank instead, in stop() below. */
-      var spendOpen = open && !(e && e.thankFreeze);
-      var jCost = j8DayCost(e), spend = jCost;
-      if (spendOpen) th -= spend; else bank -= spend;
-      if (jCost) mv(res, dk, spendOpen ? 'TH8NK' : '8ANK', -jCost, 'cups & hours');
+         that off, but only from the moment it is tapped: whatever had already
+         landed on the TH8NK stays there, snapshotted when the freeze was set,
+         and only cost beyond that point falls to the 8ANK instead - the same
+         way it would on any ordinary day. Re-taxing the whole day the moment
+         the freeze is tapped would have punished spend that was already fine
+         when it happened. FIT's late-night cost no longer runs through here
+         at all - it is paid straight out of the STOP Tank instead, in stop()
+         below. */
+      var jCost = j8DayCost(e), onBank = j8OnBank(e, open), onThank = jCost - onBank;
+      th -= onThank; bank -= onBank;
+      if (onThank) mv(res, dk, 'TH8NK', -onThank, 'cups & hours');
+      if (onBank)  mv(res, dk, '8ANK',  -onBank, 'cups & hours' + (open ? ' - TH8NK frozen' : ''));
 
       /* Freezing the 8ANK does not stop a cost from happening - it stops the
-         8ANK from being any help absorbing one. Treated as though it opened
-         the day at zero: any spend that lands there while frozen is a miss
-         no matter what the real balance could have covered. */
-      var bankFrozenMiss = !spendOpen && spend > 0 && !!(e && e.bankFreeze);
+         8ANK from being any help absorbing one, from the moment it is tapped.
+         What had already landed there by then is snapshotted and left alone;
+         only spend beyond that snapshot is treated as though the 8ANK opened
+         the day at zero, and is a miss no matter what the real balance could
+         have covered. */
+      var bankFreezeSnap = +(e && e.bankFreeze ? e.bankFreezeSnap : 0) || 0;
+      var bankFrozenMiss = !!(e && e.bankFreeze) && onBank > bankFreezeSnap;
 
       /* A day where every one of the eight came up green earns a point, and a
          perfect one earns a second into the TH8NK. Only entries are read here,
@@ -1226,10 +1246,14 @@
       }
 
       /* Freezing the Bank does not stop a slip from costing what it costs -
-         it stops the Bank from being any help absorbing one. Treated as
-         though it opened the day at zero: any slip at all while frozen is a
-         miss no matter what the real balance could have covered. */
-      var bankFreezeMiss = !!(e && e.slip && (e.min || 0) > 0 && e.bankFreeze);
+         it stops the Bank from being any help absorbing one, from the moment
+         it is tapped. Minutes already slipped by then are snapshotted and
+         left alone; only minutes added past that snapshot are treated as
+         though the Bank opened the day at zero, and are a miss no matter
+         what the real balance could have covered. */
+      var stopBankFreezeSnap = +(e && e.bankFreeze ? e.bankFreezeSnap : 0) || 0;
+      var curSlipMin = (e && e.slip) ? (e.min || 0) : 0;
+      var bankFreezeMiss = !!(e && e.bankFreeze) && curSlipMin > stopBankFreezeSnap;
 
       var numericMiss = bank < 0;
       var miss = numericMiss || bankFreezeMiss;
@@ -2241,6 +2265,7 @@
           if (dk !== key(today)) { toast('Only today can be frozen'); return; }
           if (!(_armStopBankFreeze && Date.now() - _armStopBankFreeze < 8000)) { _armStopBankFreeze = Date.now(); openSheet(dk, id); return; }
           _armStopBankFreeze = 0;
+          e.bankFreezeSnap = e.slip ? (e.min || 0) : 0;   // minutes already slipped stay penalty-free
           e.bankFreeze = 1;
           e.logged = true; commit(true);
           toast('Bank frozen for the rest of today'); return;
@@ -2314,6 +2339,7 @@
           if (dk !== key(today)) { toast('Only today can be frozen'); return; }
           if (!(_armThankFreeze && Date.now() - _armThankFreeze < 8000)) { _armThankFreeze = Date.now(); openSheet(dk, id); return; }
           _armThankFreeze = 0;
+          e.thankFreezeSnap = j8DayCost(e);   // what has already landed on the TH8NK stays there
           e.thankFreeze = 1;
           e.logged = true; commit(true);
           toast('TH8NK frozen for the rest of today'); return;
@@ -2322,6 +2348,7 @@
           if (dk !== key(today)) { toast('Only today can be frozen'); return; }
           if (!(_armBankFreeze && Date.now() - _armBankFreeze < 8000)) { _armBankFreeze = Date.now(); openSheet(dk, id); return; }
           _armBankFreeze = 0;
+          e.bankFreezeSnap = j8OnBank(e, !!j8().open[dk]);   // what has already landed on the 8ANK stays penalty-free
           e.bankFreeze = 1;
           e.logged = true; commit(true);
           toast('8ANK frozen for the rest of today'); return;
