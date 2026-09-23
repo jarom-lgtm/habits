@@ -1966,6 +1966,14 @@
         '</label>' + (function () {
           var tp = e.travPick || e.trav || '';
 
+          /* A frozen TH8NK cannot be opened for the day either. A day already
+             confirmed keeps its record below; one that was not has nothing to
+             offer - opening it after the freeze would reach back and move the
+             day's earlier spend onto the reserve the freeze just shut. */
+          if (e.thankFreeze && !e.trav) {
+            return '<div class="note" style="margin:0">TH8NK frozen for today &mdash; it cannot be opened.</div>';
+          }
+
           if (!tp) {
             return '<div class="btns">' +
                 '<button class="btn ghost" data-act="access" style="width:100%">Access TH8NK</button>' +
@@ -2305,6 +2313,9 @@
         if (a === 'eatend')   { e.eatEnd   = e.eatEnd   ? '' : nowHM(); commit(true); return; }
 
         // 'T' is a plain TH8NK day; 'H' is one that also spends a holiday.
+        if ((a === 'access' || a === 'ttrav' || a === 'tholi' || a === 'tconfirm') && e.thankFreeze && !e.trav) {
+          toast('TH8NK frozen for today'); return;
+        }
         if (a === 'access') { e.travPick = '?'; commit(true); return; }
         if (a === 'ttrav')  { e.travPick = 'T'; e.trav = ''; commit(true); return; }
         if (a === 'tholi')  { e.travPick = 'H'; e.trav = ''; commit(true); return; }
@@ -2343,6 +2354,7 @@
           _armThankFreeze = 0;
           e.thankFreezeSnap = j8DayCost(e);   // what has already landed on the TH8NK stays there
           e.thankFreeze = 1;
+          if (!e.trav) e.travPick = '';       // an unconfirmed pick is dropped: nothing was spent, and it can no longer open
           e.logged = true; commit(true);
           toast('TH8NK frozen for the rest of today'); return;
         }
