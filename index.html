@@ -1805,8 +1805,11 @@
              deposits still work, and it wears off at midnight on its own.
              Offered only on today's card - freezing a past day means nothing.
              Armed the same way as the lock, since it is just as one-way for
-             the rest of today. */
-          (tankOpen() && isToday
+             the rest of today. Not gated on the Tank being open: marking a
+             slip closes the Tank for the day (it costs the clean-day count),
+             and that is exactly the moment this needs to still be reachable -
+             a brake that vanishes the instant it is needed is no brake. */
+          (isToday
             ? (frozen
                 ? '<div class="note" style="margin-top:8px">Tank frozen for the rest of today.</div>'
                 : '<div class="btns" style="margin-top:8px"><button class="btn ' + (freezeArmed ? 'danger' : 'ghost') + '" data-act="tankfreeze" style="flex:1">' +
@@ -2233,13 +2236,13 @@
           e.logged = true; commit(true); toast('1 min into the Tank'); return;
         }
         if (a === 'fromtank') {
+          if (e.tankFreeze) { toast('Tank frozen for today'); return; }
           if (!tankOpen()) {
             toast(stop().lockUntil
               ? 'Tank locked until ' + shortDate(stop().lockUntil)
               : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
             return;
           }
-          if (e.tankFreeze) { toast('Tank frozen for today'); return; }
           if (stopTankOn(dk) < 1) { toast('Nothing in the Tank'); return; }
           e.fromTank = (e.fromTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min back to the Bank'); return;
@@ -2253,7 +2256,6 @@
           toast('Tank locked until ' + shortDate(stop().lockUntil)); return;
         }
         if (a === 'tankfreeze') {
-          if (!tankOpen()) { toast('The Tank is not open'); return; }
           if (dk !== key(today)) { toast('Only today can be frozen'); return; }
           if (!(_armFreeze && Date.now() - _armFreeze < 8000)) { _armFreeze = Date.now(); openSheet(dk, id); return; }
           _armFreeze = 0;
