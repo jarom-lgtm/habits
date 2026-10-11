@@ -900,6 +900,11 @@
      put there on purpose - deposits from the 8ANK or moves from the Tank. */
   var EARN_TO_8ANK = '2026-10-12';
 
+  /* Eight all-green days in a row pay 3 into the 8ANK, and the count starts
+     again from nothing for the next eight. Any day that is not all green
+     resets it. Counted from EARN_TO_8ANK, on top of every other point. */
+  var GREEN_RUN = 8, GREEN_RUN_PTS = 3;
+
   /* The most that can come OUT of the TH8NK in one day: nine, which arrives in
      the 8ANK as three. Three taps of Pull 3. The cap is on the amount leaving
      the reserve, not the amount landing - the reserve is what is being
@@ -993,9 +998,9 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
+    var res = { bank: 0, thank: 0, greenRun: 0, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.JUST8);
-    var bank = 0, th = 0;
+    var bank = 0, th = 0, run = 0;
     var anc = anchor();
 
     var n = daysBetween(start, today);
@@ -1099,6 +1104,22 @@
       if (perfectDay(dk)) {
         if (dk >= EARN_TO_8ANK) { bank += 1; mv(res, dk, '8ANK',  1, 'perfect day'); }
         else                    { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
+      }
+      /* Today is still being filled in, so a today that is not green yet
+         leaves the count shown where yesterday left it rather than at zero. */
+      if (dk >= EARN_TO_8ANK) {
+        var before = run;
+        if (allGreen(dk)) {
+          run += 1;
+          if (run === GREEN_RUN) {
+            bank += GREEN_RUN_PTS; mv(res, dk, '8ANK', GREEN_RUN_PTS, GREEN_RUN + ' green days in a row');
+            run = 0;
+          }
+          res.greenRun = run;
+        } else {
+          run = 0;
+          res.greenRun = (i === n) ? before : 0;
+        }
       }
 
       /* Transfers are applied exactly as they were made. They used to be
@@ -1976,7 +1997,10 @@
            A reserve you cannot touch is not information, it is temptation. */
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
           (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmtThank() + '</b>' : '') +
-          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e)) + ' pt</b>' + '</div>' +
+          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e)) + ' pt</b>' +
+          (key(today) >= EARN_TO_8ANK
+            ? ' &nbsp;&middot;&nbsp; green run <b>' + j8().greenRun + ' of ' + GREEN_RUN + '</b>'
+            : '') + '</div>' +
         (bank8() < 0
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
             'pull from the TH8NK to cover it, up to ' + PULL_MAX_PER_DAY + ' out a day, or the day is a miss.</div>'
