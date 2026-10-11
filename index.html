@@ -880,7 +880,7 @@
 
      Earning: a point a day, plus a second one each Sunday standing in for
      Zunday - the microsecond eighth day - which makes eight a week. The TH8NK
-     takes 3 a week on the same rhythm.
+     took 3 a week on the same rhythm until EARN_TO_8ANK; now the 8ANK does.
 
      Deposits: 3 out of the 8ANK become 4 in the TH8NK - a point of interest for
      putting it away. It still only ever comes back at the one-third rate, so
@@ -892,6 +892,12 @@
      TH8NK is only reachable on a day marked Travel or Holiday - on an ordinary
      day there is nothing to fall back on, and going below zero is a miss.     */
   var HOLIDAYS_PER_YEAR = 8;
+
+  /* The day the weekly 3 and the perfect-day point stopped going into the
+     TH8NK and started landing in the 8ANK. Days before it keep the old rule,
+     so nothing already earned moves. The TH8NK now fills only by what is
+     put there on purpose - deposits from the 8ANK or moves from the Tank. */
+  var EARN_TO_8ANK = '2026-10-12';
 
   /* The most that can come OUT of the TH8NK in one day: nine, which arrives in
      the 8ANK as three. Three taps of Pull 3. The cap is on the amount leaving
@@ -911,8 +917,8 @@
      still green; any mark on T is not.
 
      Perfect: all green, nothing at all marked on FIT - all five letters
-     clear, not merely inside the allowance - and no CupS. That is a point
-     into the TH8NK as well.
+     clear, not merely inside the allowance - and no CupS. That is a second
+     point into the 8ANK (into the TH8NK before EARN_TO_8ANK).
 
      Both are read straight off the entries rather than off cardState, because
      the JUST8 card's state depends on the bank and the bonus is paid INTO the
@@ -1042,7 +1048,12 @@
          counted from the start date, which only coincides with Sunday when the
          habit happens to have begun on one, and drifts off it entirely if a
          start date is ever edited. */
-      if (d.getDay() === 0) { th += 3; mv(res, dk, 'TH8NK', 3, 'weekly 3'); }
+      /* From EARN_TO_8ANK on it lands in the 8ANK instead, so every point
+         arrives in one place and he decides from there where it goes. */
+      if (d.getDay() === 0) {
+        if (dk >= EARN_TO_8ANK) { bank += 3; mv(res, dk, '8ANK', 3, 'weekly 3'); }
+        else                    { th   += 3; mv(res, dk, 'TH8NK', 3, 'weekly 3'); }
+      }
 
       /* Only a Travel or Holiday day opens the TH8NK, and holidays are capped
          per calendar year - the ninth one of a year simply does not count. */
@@ -1080,11 +1091,14 @@
       var bankFrozenMiss = !!(e && e.bankFreeze) && onBank > bankFreezeSnap;
 
       /* A day where every one of the eight came up green earns a point, and a
-         perfect one earns a second into the TH8NK. Only entries are read here,
+         perfect one earns a second (8ANK now, TH8NK before EARN_TO_8ANK). Only entries are read here,
          never the derived misses - a bonus that fed back into the balance it
          was computed from could not settle. */
       if (allGreen(dk))   { bank += 1; mv(res, dk, '8ANK',  1, 'all green'); }
-      if (perfectDay(dk)) { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
+      if (perfectDay(dk)) {
+        if (dk >= EARN_TO_8ANK) { bank += 1; mv(res, dk, '8ANK',  1, 'perfect day'); }
+        else                    { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
+      }
 
       /* Transfers are applied exactly as they were made. They used to be
          re-clamped here by whatever the balance happened to be at this point,
