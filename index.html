@@ -856,9 +856,9 @@
     return Math.ceil(c * 4) / 4;
   }
 
-  /* How much of today's cost is currently landing on the 8ANK - shared by
-     the walk and by the 8ANK slow's own snapshot, so tapping that slow
-     locks in exactly what the walk would say right now. A TH8NK freeze
+  /* How much of today's cost is landing on the 8ANK because the TH8NK is
+     shut or frozen. The walk adds any overflow from a TH8NK that ran dry on
+     top, and the 8ANK slow snapshots the walk's total. A TH8NK freeze
      protects only what it had already taken in by the moment it was
      tapped; anything past that snapshot falls to the 8ANK same as if the
      day were never open at all. */
@@ -998,7 +998,7 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, greenRun: 0, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
+    var res = { bank: 0, thank: 0, greenRun: 0, onBank: {}, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.JUST8);
     var bank = 0, th = 0, run = 0;
     var anc = anchor();
@@ -1082,10 +1082,23 @@
          when it happened. FIT's late-night cost no longer runs through here
          at all - it is paid straight out of the STOP Tank instead, in stop()
          below. */
+      /* The TH8NK can only pay what it actually has. Whatever is left once it
+         runs dry overflows to the 8ANK at the normal rate, the same as if it
+         had been frozen at that moment. What it has counts the day's own
+         transfers in and out, so catching an overflow and moving points
+         across from the 8ANK covers it after the fact. */
       var jCost = j8DayCost(e), onBank = j8OnBank(e, open), onThank = jCost - onBank;
+      var sEd = get(dk, 'STOP');
+      var thAvail = th + ((e && e.thankDep) ? (e.thankDep / 3) * 4 : 0) + ((sEd && sEd.tankToThank) || 0)
+                       - ((e && e.thankPull) || 0) - ((e && e.thankToTank) || 0);
+      var overflow = Math.max(0, onThank - Math.max(0, thAvail));
+      var frozenPart = onBank;
+      onThank -= overflow; onBank += overflow;
+      res.onBank[dk] = onBank;
       th -= onThank; bank -= onBank;
-      if (onThank) mv(res, dk, 'TH8NK', -onThank, 'cups & hours');
-      if (onBank)  mv(res, dk, '8ANK',  -onBank, 'cups & hours' + (open ? ' - TH8NK frozen' : ''));
+      if (onThank)    mv(res, dk, 'TH8NK', -onThank, 'cups & hours');
+      if (frozenPart) mv(res, dk, '8ANK',  -frozenPart, 'cups & hours' + (open ? ' - TH8NK frozen' : ''));
+      if (overflow)   mv(res, dk, '8ANK',  -overflow, 'cups & hours - TH8NK ran out');
 
       /* Slowing the 8ANK makes every point it pays from that moment on cost
          three. What had already landed on it when the slow was tapped is
@@ -1093,7 +1106,7 @@
          is tripled - the extra two of every three logged as their own line.
          It is not a miss by itself: only a balance below zero is. */
       if (e && e.bankSlow) {
-        var slowed = Math.max(0, onBank - (+e.bankSlowSnap || 0));
+        var slowed = Math.max(0, onBank - (+e.bankSlowSnap || 0));   // onBank includes any overflow
         if (slowed) { bank -= slowed * 2; mv(res, dk, '8ANK', -slowed * 2, '8ANK slowed - 3 for every 1'); }
       }
 
@@ -2455,7 +2468,7 @@
           if (dk !== key(today)) { toast('Only today can be slowed'); return; }
           if (!(_armBankSlow && Date.now() - _armBankSlow < 8000)) { _armBankSlow = Date.now(); openSheet(dk, id); return; }
           _armBankSlow = 0;
-          e.bankSlowSnap = j8OnBank(e, !!j8().open[dk]);   // what has already landed on the 8ANK stays at the normal rate
+          e.bankSlowSnap = j8().onBank[dk] || 0;   // what has already landed on the 8ANK, overflow included, stays at the normal rate
           e.bankSlow = 1;
           e.logged = true; commit(true);
           toast('8ANK slowed for the rest of today'); return;
