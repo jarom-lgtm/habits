@@ -1105,6 +1105,12 @@
         mv(res, dk, 'TH8NK', -e.thankPull, 'moved to the 8ANK');
         mv(res, dk, '8ANK',  e.thankPull / 3, 'from the TH8NK');
       }
+      /* Points to and from the STOP Tank, one for one. stop() writes the Tank
+         side of each move off these same entries, so neither walk reads the
+         other's balance and the two cannot disagree. */
+      var sE = get(dk, 'STOP');
+      if (e && e.thankToTank)   { th -= e.thankToTank;   mv(res, dk, 'TH8NK', -e.thankToTank, 'moved to the Tank'); }
+      if (sE && sE.tankToThank) { th += sE.tankToThank;  mv(res, dk, 'TH8NK', sE.tankToThank, 'from the Tank'); }
 
       /* Nothing is pulled automatically any more. Spending the reserve is a
          deliberate act, so the app leaves the 8ANK short and lets him decide -
@@ -1222,6 +1228,10 @@
       if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank;
                              mv(res, dk, 'Tank', -e.fromTank, 'moved to the Bank');
                              mv(res, dk, 'Bank', e.fromTank, 'from the Tank'); }
+      // The other half of the TH8NK <-> Tank moves - see the JUST8 walk.
+      var jE = get(dk, 'JUST8');
+      if (jE && jE.thankToTank) { tank += jE.thankToTank; mv(res, dk, 'Tank', jE.thankToTank, 'from the TH8NK'); }
+      if (e && e.tankToThank)   { tank -= e.tankToThank;  mv(res, dk, 'Tank', -e.tankToThank, 'moved to the TH8NK'); }
       /* A lock is eight days from the day it was tapped. It moves no minutes,
          so it is not a log line - it shows on the card. */
       if (e && e.tankLock) lockUntil = addDays(d, TANK_LOCK_DAYS);
@@ -1299,6 +1309,52 @@
   function tankReached() { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
   function tankOpen()  { return tankReached() && !stop().lockUntil; }
   function fitTankShortOn(dk) { return !!stop().fitShort[dk]; }
+
+  /* The TH8NK and the Tank are linked, one point for one minute, but each
+     keeps its own brakes: a lock or freeze stops anything leaving that side,
+     never anything arriving. Each move is stored on the entry of the side it
+     leaves - the TH8NK's on JUST8, the Tank's on STOP - which is where that
+     side's freeze lives. Shown on both cards so it is there from either. */
+  function tankThankRow(dk) {
+    var jE = get(dk, 'JUST8') || {}, sE = get(dk, 'STOP') || {};
+    var thankStop = !!jE.thankFreeze, tankStop = !!sE.tankFreeze || !tankOpen();
+    return '<div class="field"><label>TH8NK &amp; Tank &middot; 1 pt = 1 min</label>' +
+      '<div class="btns">' +
+        '<div style="flex:1">' +
+          '<div class="dirlbl">TH8NK &rarr; Tank</div>' +
+          '<button class="btn ghost" data-act="thanktotank" style="width:100%' + (thankStop ? ';opacity:.4' : '') + '">' +
+            (thankStop ? 'Frozen today' : 'Move 1') + '</button>' +
+        '</div>' +
+        '<div style="flex:1">' +
+          '<div class="dirlbl">Tank &rarr; TH8NK</div>' +
+          '<button class="btn ghost" data-act="tanktothank" style="width:100%' + (tankStop ? ';opacity:.4' : '') + '">' +
+            (sE.tankFreeze ? 'Frozen today' : (!tankOpen() ? 'Tank shut' : 'Move 1')) + '</button>' +
+        '</div>' +
+      '</div></div>';
+  }
+  /* Makes the move if it is allowed. Returns the toast to show and whether
+     anything changed. */
+  function tankThankMove(a, dk) {
+    if (a === 'thanktotank') {
+      var jE = get(dk, 'JUST8');
+      if (jE && jE.thankFreeze) return { msg: 'TH8NK frozen for today' };
+      if (thankOn(dk) < 1) return { msg: 'Nothing in the TH8NK' };
+      jE = entry(dk, 'JUST8', true);
+      jE.thankToTank = (jE.thankToTank || 0) + 1;
+      return { ok: true, msg: '1 point into the Tank as 1 min' };
+    }
+    var sE = get(dk, 'STOP');
+    if (sE && sE.tankFreeze) return { msg: 'Tank frozen for today' };
+    if (!tankOpen()) {
+      return { msg: stop().lockUntil
+        ? 'Tank locked until ' + shortDate(stop().lockUntil)
+        : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun };
+    }
+    if (stopTankOn(dk) < 1) return { msg: 'Nothing in the Tank' };
+    sE = entry(dk, 'STOP', true);
+    sE.tankToThank = (sE.tankToThank || 0) + 1;
+    return { ok: true, msg: '1 min into the TH8NK as 1 point' };
+  }
 
   /* FIT's own miss, computed from the Tank walk rather than set by hand -
      the same shape as STOP and JUST8's automatic misses just below. */
@@ -1825,6 +1881,7 @@
             ? '<div class="note" style="margin:8px 0 0">A miss empties the Tank. So does slipping two days in a row, even if neither one breaks the streak.</div>'
             : '') +
         '</div>' +
+        tankThankRow(dk) +
         '<div class="btns">' + doneBtn() + '</div>';
     }
 
@@ -2046,6 +2103,9 @@
               '<button class="btn ghost" data-act="dep3" style="width:100%">Deposit 3 &rarr; +4</button>' +
             '</div>' +
           '</div>' +
+        '</div>' +
+        tankThankRow(dk) +
+        '<div class="field">' +
           /* A same-day brake on the TH8NK, same shape as the one on the Tank:
              blocks anything more leaving it for the rest of today, deposits
              still land, and it wears off on its own at midnight. Offered only
@@ -2238,6 +2298,11 @@
           return;
         }
 
+        if (a === 'thanktotank' || a === 'tanktothank') {
+          var mvr = tankThankMove(a, dk);
+          if (mvr.ok) commit(true);
+          toast(mvr.msg); return;
+        }
         if (a === 'totank') {
           if (stopBankOn(dk) < 1) { toast('Nothing in the Bank to move'); return; }
           e.toTank = (e.toTank || 0) + 1;
