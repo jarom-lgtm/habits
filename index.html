@@ -1256,7 +1256,7 @@
     var n = daysBetween(start, today);
     if (n < 0) { _stop = res; return res; }
 
-    var d = start, slipRun = 0;
+    var d = start;
     for (var i = 0; i <= n; i++) {
       var dk = key(d), e = get(dk, 'STOP');
 
@@ -1271,10 +1271,10 @@
       }
 
       if (e && e.slip) {
-        bank -= (e.min || 0); clean = 0; slipRun++;
+        bank -= (e.min || 0); clean = 0;
         mv(res, dk, 'Bank', -(e.min || 0), 'slip');
       } else {
-        bank += 1; clean++; slipRun = 0;
+        bank += 1; clean++;
         mv(res, dk, 'Bank', 1, 'clean day');
       }
       if (e && e.toTank)   { bank -= e.toTank;   tank += e.toTank;      // one for one
@@ -1335,16 +1335,8 @@
         bank = 0;
       }
 
-      /* A miss already writes the Bank's debt off - the Tank goes with it so
-         the reserve cannot be leaned on to soften a night that was a miss,
-         not just a slip. Two slips in a row empty it too, even when the Bank
-         absorbed both and neither one broke the streak - back-to-back slips
-         are exactly the pattern the Tank should not be there to cushion.
-         Nothing left to take on a Tank already emptied either way. */
-      if (tank > 0 && (miss || slipRun >= 2)) {
-        mv(res, dk, 'Tank', -tank, miss ? 'miss - Tank wiped' : '2 slips in a row - Tank wiped');
-        tank = 0;
-      }
+      /* The Tank used to empty on a miss or on two slips in a row. It no
+         longer does: a miss or a slip leaves it exactly as it was. */
 
       res.closing[dk] = { bank: bank, tank: tank };
       d = addDays(d, 1);
@@ -1927,13 +1919,6 @@
                   (freezeArmed
                     ? 'Tap again to freeze the Tank for the rest of today'
                     : 'Freeze the Tank for today') + '</button></div>')
-            : '') +
-          /* Said where the decision is made, and only when there is something
-             in there to lose. The rule is easy to forget precisely because it
-             so rarely fires, and the day it fires is the worst day to be
-             reminded of it. */
-          (stopTank() > 0
-            ? '<div class="note" style="margin:8px 0 0">A miss empties the Tank. So does slipping two days in a row, even if neither one breaks the streak.</div>'
             : '') +
         '</div>' +
         tankThankRow(dk) +
