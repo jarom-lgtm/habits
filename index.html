@@ -1178,14 +1178,15 @@
      near-identical loops, which is precisely the arrangement that lets a
      balance and the misses drawn from it drift apart. */
   /* The Tank is a long-term reserve alongside the Bank. Minutes move Bank to
-     Tank one for one, but only come back out after 30 unbroken days - the T
-     stands for the wait. Named Bank and Tank rather than reusing the 8ANK and
+     Tank one for one and never come back to the Bank - the only way out is
+     to the TH8NK, and only after 8 unbroken days - the T stands for the
+     wait. Named Bank and Tank rather than reusing the 8ANK and
      TH8NK spelling, so the two economies cannot be mistaken for each other. */
-  var TANK_UNLOCK_DAYS = 30;
+  var TANK_UNLOCK_DAYS = 8;
   var _armLock = 0;                              // first tap on the lock; the second within 8s does it
   var _armFreeze = 0;                            // first tap on a same-day Tank freeze; the second within 8s does it
   var _armStopBankFreeze = 0;                    // first tap on a same-day Bank freeze; the second within 8s does it
-  /* Once the thirty are in hand the Tank can be locked again, by choice, for
+  /* Once the eight are in hand the Tank can be locked again, by choice, for
      eight days. The moment of reaching it is the moment with the most resolve
      in it, and this is a way to spend that resolve on the next stretch rather
      than on the Tank. Offered only while the Tank is actually open - so the
@@ -1852,14 +1853,12 @@
             : stop().lockUntil
               ? 'Tank locked until ' + shortDate(stop().lockUntil)
               : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days') + '</label>' +
+          /* Nothing comes back from the Tank to the Bank any more - its only
+             way out is the TH8NK row below. Old withdrawals stay on record. */
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">Bank &rarr; Tank</div>' +
               '<button class="btn ghost" data-act="totank" style="width:100%">Put 1 in</button>' +
-            '</div>' +
-            '<div style="flex:1">' +
-              '<div class="dirlbl">Tank &rarr; Bank</div>' +
-              '<button class="btn ghost" data-act="fromtank" style="width:100%">' + (frozen ? 'Frozen today' : 'Take 1 out') + '</button>' +
             '</div>' +
           '</div>' +
           /* Offered only while the Tank is open, and armed like the other
@@ -2321,18 +2320,6 @@
           if (stopBankOn(dk) < 1) { toast('Nothing in the Bank to move'); return; }
           e.toTank = (e.toTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min into the Tank'); return;
-        }
-        if (a === 'fromtank') {
-          if (e.tankFreeze) { toast('Tank frozen for today'); return; }
-          if (!tankOpen()) {
-            toast(stop().lockUntil
-              ? 'Tank locked until ' + shortDate(stop().lockUntil)
-              : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun);
-            return;
-          }
-          if (stopTankOn(dk) < 1) { toast('Nothing in the Tank'); return; }
-          e.fromTank = (e.fromTank || 0) + 1;
-          e.logged = true; commit(true); toast('1 min back to the Bank'); return;
         }
         if (a === 'tanklock') {
           if (!tankOpen()) { toast('The Tank is not open'); return; }
