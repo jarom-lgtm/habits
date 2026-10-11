@@ -530,14 +530,15 @@
   var WERK_FULL = 31;
   function werkMin(e) { return (e && typeof e.min === 'number') ? e.min : WERK_FULL; }
 
-  /* A full session or nothing. Twenty-five minutes is not most of a workout,
-     it is a missed one, so there is no partial state to sit in - the moment
-     the minutes drop below a full session the day is marked missed. It can
-     still be undone by hand like any other miss. */
+  /* A full session is still the only thing that counts as done, but a short
+     one is no longer marked missed by itself. Part of a workout logged during
+     the day is a session not yet finished, so it shows amber - at risk - and
+     the miss is his to mark if the rest never happens. Reaching the full
+     session clears a miss, since the work was done after all. */
   function setWerk(e) {
     var m = werkMin(e);
     e.done   = (m >= WERK_FULL && !!(e.types && e.types.length));
-    e.miss   = (m < WERK_FULL);
+    if (e.done) e.miss = false;
     e.logged = true;
   }
 
@@ -1431,7 +1432,7 @@
       case 'STOP':     return e.slip ? 'warn' : (e.logged ? 'ok' : '');
       case 'FIT':      return fitOver(e.items).spent ? 'warn' : (e.logged ? 'ok' : '');
       case 'JUST8':    return (e.eatStart && e.eatEnd) ? 'ok' : (e.eatStart || e.cups || e.cupS ? 'warn' : '');
-      case 'WERKOUTS': return e.done ? 'ok' : '';   // anything short of a full one is a miss, not amber
+      case 'WERKOUTS': return e.done ? 'ok' : ((e.logged && werkMin(e) < WERK_FULL) ? 'warn' : '');   // short of a full one is amber until finished or marked missed
       default:         return e.done ? 'ok' : '';
     }
   }
@@ -1795,7 +1796,7 @@
         '<div class="field"><label>Minutes &mdash; starts at a full ' + WERK_FULL + '</label>' +
           '<div class="stepper">' +
             '<button data-act="min-">&minus;</button>' +
-            '<div class="val" id="minVal">' + wm + (wm >= WERK_FULL ? '' : ' &mdash; a miss') + '</div>' +
+            '<div class="val" id="minVal">' + wm + (wm >= WERK_FULL ? '' : ' &mdash; not finished') + '</div>' +
             '<button data-act="min+">+</button>' +
           '</div></div>' +
         '<div class="field"><label>Which ones</label><div class="chips">' +
