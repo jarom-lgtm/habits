@@ -48,7 +48,7 @@ current run began, its misses and its longest run — with a Copy button, behind
 the PIN. Nothing on that copy can be set up again; beginning fresh means
 deleting it from the home screen and installing again from the link. That is
 the only time the exact TH8NK and Tank are ever shown; the rest of the time
-they read as a ceiling ("18+", "11+"), so there is no way to peek at them
+they read as a ceiling ("8+"), so there is no way to peek at them
 without giving up the history they came from.
 
 A fresh install takes those numbers back by hand:

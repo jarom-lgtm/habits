@@ -1349,24 +1349,26 @@
   function fitTankShortOn(dk) { return !!stop().fitShort[dk]; }
 
   /* The TH8NK and the Tank are linked, one point for one minute, but each
-     keeps its own brakes: a lock or freeze stops anything leaving that side,
-     never anything arriving. Each move is stored on the entry of the side it
+     keeps its own brakes. A frozen Tank moves nothing either way; a locked
+     or not-yet-open one takes minutes in but lets none out. A TH8NK freeze
+     does not touch transfers at all - moving points is not spending them,
+     and the freeze only stops the TH8NK paying for the day. Each move is stored on the entry of the side it
      leaves - the TH8NK's on JUST8, the Tank's on STOP - which is where that
      side's freeze lives. Shown on both cards so it is there from either. */
   function tankThankRow(dk) {
     var jE = get(dk, 'JUST8') || {}, sE = get(dk, 'STOP') || {};
-    var thankStop = !!jE.thankFreeze, tankStop = !!sE.tankFreeze || !tankOpen();
+    var tankFrozen = !!sE.tankFreeze, tankStop = tankFrozen || !tankOpen();
     return '<div class="field"><label>TH8NK &amp; Tank &middot; 1 pt = 1 min</label>' +
       '<div class="btns">' +
         '<div style="flex:1">' +
           '<div class="dirlbl">TH8NK &rarr; Tank</div>' +
-          '<button class="btn ghost" data-act="thanktotank" style="width:100%' + (thankStop ? ';opacity:.4' : '') + '">' +
-            (thankStop ? 'Frozen today' : 'Move 1') + '</button>' +
+          '<button class="btn ghost" data-act="thanktotank" style="width:100%' + (tankFrozen ? ';opacity:.4' : '') + '">' +
+            (tankFrozen ? 'Tank frozen' : 'Move 1') + '</button>' +
         '</div>' +
         '<div style="flex:1">' +
           '<div class="dirlbl">Tank &rarr; TH8NK</div>' +
           '<button class="btn ghost" data-act="tanktothank" style="width:100%' + (tankStop ? ';opacity:.4' : '') + '">' +
-            (sE.tankFreeze ? 'Frozen today' : (!tankOpen() ? 'Tank shut' : 'Move 1')) + '</button>' +
+            (tankFrozen ? 'Tank frozen' : (!tankOpen() ? 'Tank shut' : 'Move 1')) + '</button>' +
         '</div>' +
       '</div></div>';
   }
@@ -1374,10 +1376,10 @@
      anything changed. */
   function tankThankMove(a, dk) {
     if (a === 'thanktotank') {
-      var jE = get(dk, 'JUST8');
-      if (jE && jE.thankFreeze) return { msg: 'TH8NK frozen for today' };
+      var tE = get(dk, 'STOP');
+      if (tE && tE.tankFreeze) return { msg: 'Tank frozen for today' };
       if (thankOn(dk) < 1) return { msg: 'Nothing in the TH8NK' };
-      jE = entry(dk, 'JUST8', true);
+      var jE = entry(dk, 'JUST8', true);
       jE.thankToTank = (jE.thankToTank || 0) + 1;
       return { ok: true, msg: '1 point into the Tank as 1 min' };
     }
@@ -1434,7 +1436,7 @@
      Knowing there is "at least 18" is enough to act on; knowing there is 300
      is an invitation to spend it. Every move still shows in the log, so the
      real figure can be worked out - it just cannot be read off the screen. */
-  var THANK_VEIL = 18, TANK_VEIL = 11;
+  var THANK_VEIL = 8, TANK_VEIL = 8;
   function veil(n, cap) { return n > cap ? cap + '+' : fmt(n); }
   function fmtThank() { return veil(thank(), THANK_VEIL); }
   function fmtTank()  { return veil(stopTank(), TANK_VEIL); }
@@ -1881,7 +1883,7 @@
           '<div class="btns">' +
             '<div style="flex:1">' +
               '<div class="dirlbl">Bank &rarr; Tank</div>' +
-              '<button class="btn ghost" data-act="totank" style="width:100%">Put 1 in</button>' +
+              '<button class="btn ghost" data-act="totank" style="width:100%' + (frozen ? ';opacity:.4' : '') + '">' + (frozen ? 'Tank frozen' : 'Put 1 in') + '</button>' +
             '</div>' +
           '</div>' +
           /* Offered only while the Tank is open, and armed like the other
@@ -2133,8 +2135,8 @@
               /* Spent for the day it says so on the button. A control that
                  looks live and then refuses reads as a fault, not a rule. */
               '<button class="btn ghost" data-act="thank3" style="width:100%' +
-                ((thankFrozen || (e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
-                (thankFrozen ? 'Frozen today' : ((e.thankPull || 0) >= PULL_MAX_PER_DAY ? 'Pulled today' : 'Pull 3 &rarr; +1')) +
+                (((e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
+                ((e.thankPull || 0) >= PULL_MAX_PER_DAY ? 'Pulled today' : 'Pull 3 &rarr; +1') +
               '</button>' +
             '</div>' +
             '<div style="flex:1">' +
@@ -2145,10 +2147,10 @@
         '</div>' +
         tankThankRow(dk) +
         '<div class="field">' +
-          /* A same-day brake on the TH8NK, same shape as the one on the Tank:
-             blocks anything more leaving it for the rest of today, deposits
-             still land, and it wears off on its own at midnight. Offered only
-             on today's card - freezing a past day means nothing. */
+          /* A same-day brake on the TH8NK: it stops the TH8NK paying for the
+             rest of today, while transfers in and out still work. It wears
+             off on its own at midnight. Offered only on today's card -
+             freezing a past day means nothing. */
           (isTodayJ8
             ? (thankFrozen
                 ? '<div class="note" style="margin-top:8px">TH8NK frozen for the rest of today.</div>'
@@ -2342,6 +2344,7 @@
           toast(mvr.msg); return;
         }
         if (a === 'totank') {
+          if (e.tankFreeze) { toast('Tank frozen for today'); return; }
           if (stopBankOn(dk) < 1) { toast('Nothing in the Bank to move'); return; }
           e.toTank = (e.toTank || 0) + 1;
           e.logged = true; commit(true); toast('1 min into the Tank'); return;
@@ -2425,7 +2428,6 @@
         if (a === 'tclear')  { e.travPick = ''; e.trav = ''; e.travWho = ''; e.travWhat = ''; commit(true); return; }
 
         if (a === 'thank3') {
-          if (e.thankFreeze) { toast('TH8NK frozen for today'); return; }
           if ((e.thankPull || 0) >= PULL_MAX_PER_DAY) {
             toast('That is the day\'s limit - ' + PULL_MAX_PER_DAY + ' out, ' +
                   (PULL_MAX_PER_DAY / 3) + ' in'); return;
