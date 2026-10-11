@@ -857,7 +857,7 @@
   }
 
   /* How much of today's cost is currently landing on the 8ANK - shared by
-     the walk and by the 8ANK freeze's own snapshot, so tapping that freeze
+     the walk and by the 8ANK slow's own snapshot, so tapping that slow
      locks in exactly what the walk would say right now. A TH8NK freeze
      protects only what it had already taken in by the moment it was
      tapped; anything past that snapshot falls to the 8ANK same as if the
@@ -914,7 +914,7 @@
      never the move that needs saving him from. */
   var PULL_MAX_PER_DAY = 9;
   var _armThankFreeze = 0;                       // first tap on a same-day TH8NK freeze; the second within 8s does it
-  var _armBankFreeze = 0;                        // first tap on a same-day 8ANK freeze; the second within 8s does it
+  var _armBankSlow = 0;                          // first tap on a same-day 8ANK slow; the second within 8s does it
 
   /* Two tiers of a good day, paid into two different reserves.
 
@@ -1087,14 +1087,15 @@
       if (onThank) mv(res, dk, 'TH8NK', -onThank, 'cups & hours');
       if (onBank)  mv(res, dk, '8ANK',  -onBank, 'cups & hours' + (open ? ' - TH8NK frozen' : ''));
 
-      /* Freezing the 8ANK does not stop a cost from happening - it stops the
-         8ANK from being any help absorbing one, from the moment it is tapped.
-         What had already landed there by then is snapshotted and left alone;
-         only spend beyond that snapshot is treated as though the 8ANK opened
-         the day at zero, and is a miss no matter what the real balance could
-         have covered. */
-      var bankFreezeSnap = +(e && e.bankFreeze ? e.bankFreezeSnap : 0) || 0;
-      var bankFrozenMiss = !!(e && e.bankFreeze) && onBank > bankFreezeSnap;
+      /* Slowing the 8ANK makes every point it pays from that moment on cost
+         three. What had already landed on it when the slow was tapped is
+         snapshotted and stays at the normal rate; only cost past that point
+         is tripled - the extra two of every three logged as their own line.
+         It is not a miss by itself: only a balance below zero is. */
+      if (e && e.bankSlow) {
+        var slowed = Math.max(0, onBank - (+e.bankSlowSnap || 0));
+        if (slowed) { bank -= slowed * 2; mv(res, dk, '8ANK', -slowed * 2, '8ANK slowed - 3 for every 1'); }
+      }
 
       /* A day where every one of the eight came up green earns a point, and a
          perfect one earns a second (8ANK now, TH8NK before EARN_TO_8ANK). Only entries are read here,
@@ -1152,7 +1153,7 @@
          deliberate act, so the app leaves the 8ANK short and lets him decide -
          a rescue he did not ask for is a decision taken away from him. */
 
-      res.misses[dk] = (bank < 0) || bankFrozenMiss;   // nothing left to reach for
+      res.misses[dk] = (bank < 0);   // nothing left to reach for
       res.closing[dk] = { bank: bank, th: th };
       d = addDays(d, 1);
     }
@@ -1989,8 +1990,8 @@
       var h8 = windowHours(e), m8 = windowMinutes(e), over8 = Math.max(0, m8 - WINDOW_MIN);
       var thankFreezeArmed = (_armThankFreeze && Date.now() - _armThankFreeze < 8000);
       var thankFrozen = !!e.thankFreeze;
-      var bankFreezeArmed = (_armBankFreeze && Date.now() - _armBankFreeze < 8000);
-      var bankFrozen = !!e.bankFreeze;
+      var bankSlowArmed = (_armBankSlow && Date.now() - _armBankSlow < 8000);
+      var bankSlowed = !!e.bankSlow;
       var isTodayJ8 = (dk === key(today));
       html = head('JUST8', when) +
         /* The TH8NK balance only appears on a day it can actually be reached.
@@ -2158,15 +2159,14 @@
             : '') +
           /* The 8ANK's own brake, separate from the TH8NK's. It does not stop
              a cost from happening - there is nowhere else for it to go - it
-             just stops the 8ANK from being able to absorb one: frozen, any
-             cost the rest of today is a miss, the same as an empty balance. */
+             makes it dearer: slowed, every point the rest of today costs 3. */
           (isTodayJ8
-            ? (bankFrozen
-                ? '<div class="note" style="margin-top:8px">8ANK frozen for the rest of today - any cost now is a miss.</div>'
-                : '<div class="btns" style="margin-top:8px"><button class="btn ' + (bankFreezeArmed ? 'danger' : 'ghost') + '" data-act="bankfreeze" style="flex:1">' +
-                  (bankFreezeArmed
-                    ? 'Tap again to freeze the 8ANK for the rest of today'
-                    : 'Freeze the 8ANK for today') + '</button></div>')
+            ? (bankSlowed
+                ? '<div class="note" style="margin-top:8px">8ANK slowed for the rest of today - every point now costs 3.</div>'
+                : '<div class="btns" style="margin-top:8px"><button class="btn ' + (bankSlowArmed ? 'danger' : 'ghost') + '" data-act="bankslow" style="flex:1">' +
+                  (bankSlowArmed
+                    ? 'Tap again to slow the 8ANK for the rest of today'
+                    : 'Slow the 8ANK for today') + '</button></div>')
             : '') +
         '</div>' +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
@@ -2449,14 +2449,14 @@
           e.logged = true; commit(true);
           toast('TH8NK frozen for the rest of today'); return;
         }
-        if (a === 'bankfreeze') {
-          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
-          if (!(_armBankFreeze && Date.now() - _armBankFreeze < 8000)) { _armBankFreeze = Date.now(); openSheet(dk, id); return; }
-          _armBankFreeze = 0;
-          e.bankFreezeSnap = j8OnBank(e, !!j8().open[dk]);   // what has already landed on the 8ANK stays penalty-free
-          e.bankFreeze = 1;
+        if (a === 'bankslow') {
+          if (dk !== key(today)) { toast('Only today can be slowed'); return; }
+          if (!(_armBankSlow && Date.now() - _armBankSlow < 8000)) { _armBankSlow = Date.now(); openSheet(dk, id); return; }
+          _armBankSlow = 0;
+          e.bankSlowSnap = j8OnBank(e, !!j8().open[dk]);   // what has already landed on the 8ANK stays at the normal rate
+          e.bankSlow = 1;
           e.logged = true; commit(true);
-          toast('8ANK frozen for the rest of today'); return;
+          toast('8ANK slowed for the rest of today'); return;
         }
       });
     });
