@@ -919,12 +919,13 @@
   /* Two tiers of a good day, paid into two different reserves.
 
      All green: every one of the eight shows a tick - nothing amber, nothing
-     missed. That is a point into the 8ANK. On FIT a single small unit is
+     missed. That was a point into the 8ANK before EARN_TO_8ANK; now it only
+     counts toward the eight-in-a-row bonus. On FIT a single small unit is
      still green; any mark on T is not.
 
      Perfect: all green, nothing at all marked on FIT - all five letters
-     clear, not merely inside the allowance - and no CupS. That is a second
-     point into the 8ANK (into the TH8NK before EARN_TO_8ANK).
+     clear, not merely inside the allowance - and no CupS. That is a point
+     into the 8ANK (into the TH8NK before EARN_TO_8ANK).
 
      Both are read straight off the entries rather than off cardState, because
      the JUST8 card's state depends on the bank and the bonus is paid INTO the
@@ -1110,11 +1111,14 @@
         if (slowed) { bank -= slowed * 2; mv(res, dk, '8ANK', -slowed * 2, '8ANK slowed - 3 for every 1'); }
       }
 
-      /* A day where every one of the eight came up green earns a point, and a
-         perfect one earns a second (8ANK now, TH8NK before EARN_TO_8ANK). Only entries are read here,
-         never the derived misses - a bonus that fed back into the balance it
+      /* Before EARN_TO_8ANK an all-green day earned a point and a perfect one
+         a second into the TH8NK; from it, only the perfect day pays, into the
+         8ANK. Only entries are read here, never the derived misses - a bonus that fed back into the balance it
          was computed from could not settle. */
-      if (allGreen(dk))   { bank += 1; mv(res, dk, '8ANK',  1, 'all green'); }
+      /* From EARN_TO_8ANK an all-green day earns nothing by itself - it counts
+         toward the eight-in-a-row bonus below instead. Only a perfect day
+         still pays a point of its own. */
+      if (dk < EARN_TO_8ANK && allGreen(dk)) { bank += 1; mv(res, dk, '8ANK',  1, 'all green'); }
       if (perfectDay(dk)) {
         if (dk >= EARN_TO_8ANK) { bank += 1; mv(res, dk, '8ANK',  1, 'perfect day'); }
         else                    { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
