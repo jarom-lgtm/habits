@@ -505,6 +505,12 @@
 
   var WERK  = ['W', 'E', 'R', 'K', 'O', 'U', 'T', 'S'];
   var FITB  = ['M', 'T', 'W', 'TH', 'F'];
+  /* A same-day freeze on T alone. Whatever T showed when it was tapped stands;
+     any heavier mark on T after it is a miss for FIT - set on the tap, like
+     going past the allowance, so it can still be undone by hand. The other
+     letters carry on as normal. */
+  var _armTFreeze = 0;
+  function fitRank(v) { return { '': 0, u: 1, uu: 2, U: 3, X: 4 }[v || ''] || 0; }
 
   /* Twenty-four a week, spent down, and not carried over - an unused
      allowance is not savings, it is a week that did not need it.
@@ -1358,26 +1364,27 @@
   function fitTankShortOn(dk) { return !!stop().fitShort[dk]; }
 
   /* The TH8NK and the Tank are linked, one point for one minute, but each
-     keeps its own brakes. A frozen Tank moves nothing either way; a locked
-     or not-yet-open one takes minutes in but lets none out. A TH8NK freeze
-     does not touch transfers at all - moving points is not spending them,
-     and the freeze only stops the TH8NK paying for the day. Each move is stored on the entry of the side it
+     keeps its own brakes. A frozen side - TH8NK or Tank - moves nothing in
+     or out for the rest of the day; a locked or not-yet-open Tank takes
+     minutes in but lets none out. Each move is stored on the entry of the side it
      leaves - the TH8NK's on JUST8, the Tank's on STOP - which is where that
      side's freeze lives. Shown on both cards so it is there from either. */
   function tankThankRow(dk) {
     var jE = get(dk, 'JUST8') || {}, sE = get(dk, 'STOP') || {};
-    var tankFrozen = !!sE.tankFreeze, tankStop = tankFrozen || !tankOpen();
+    var thankFrozen = !!jE.thankFreeze, tankFrozen = !!sE.tankFreeze, tankStop = tankFrozen || !tankOpen();
+    var anyFrozen = thankFrozen || tankFrozen;
+    var frozenLbl = thankFrozen ? 'TH8NK frozen' : 'Tank frozen';
     return '<div class="field"><label>TH8NK &amp; Tank &middot; 1 pt = 1 min</label>' +
       '<div class="btns">' +
         '<div style="flex:1">' +
           '<div class="dirlbl">TH8NK &rarr; Tank</div>' +
-          '<button class="btn ghost" data-act="thanktotank" style="width:100%' + (tankFrozen ? ';opacity:.4' : '') + '">' +
-            (tankFrozen ? 'Tank frozen' : 'Move 1') + '</button>' +
+          '<button class="btn ghost" data-act="thanktotank" style="width:100%' + (anyFrozen ? ';opacity:.4' : '') + '">' +
+            (anyFrozen ? frozenLbl : 'Move 1') + '</button>' +
         '</div>' +
         '<div style="flex:1">' +
           '<div class="dirlbl">Tank &rarr; TH8NK</div>' +
-          '<button class="btn ghost" data-act="tanktothank" style="width:100%' + (tankStop ? ';opacity:.4' : '') + '">' +
-            (tankFrozen ? 'Tank frozen' : (!tankOpen() ? 'Tank shut' : 'Move 1')) + '</button>' +
+          '<button class="btn ghost" data-act="tanktothank" style="width:100%' + ((tankStop || thankFrozen) ? ';opacity:.4' : '') + '">' +
+            (anyFrozen ? frozenLbl : (!tankOpen() ? 'Tank shut' : 'Move 1')) + '</button>' +
         '</div>' +
       '</div></div>';
   }
@@ -1385,14 +1392,16 @@
      anything changed. */
   function tankThankMove(a, dk) {
     if (a === 'thanktotank') {
-      var tE = get(dk, 'STOP');
+      var tE = get(dk, 'STOP'), tJ = get(dk, 'JUST8');
+      if (tJ && tJ.thankFreeze) return { msg: 'TH8NK frozen for today' };
       if (tE && tE.tankFreeze) return { msg: 'Tank frozen for today' };
       if (thankOn(dk) < 1) return { msg: 'Nothing in the TH8NK' };
       var jE = entry(dk, 'JUST8', true);
       jE.thankToTank = (jE.thankToTank || 0) + 1;
       return { ok: true, msg: '1 point into the Tank as 1 min' };
     }
-    var sE = get(dk, 'STOP');
+    var sE = get(dk, 'STOP'), sJ = get(dk, 'JUST8');
+    if (sJ && sJ.thankFreeze) return { msg: 'TH8NK frozen for today' };
     if (sE && sE.tankFreeze) return { msg: 'Tank frozen for today' };
     if (!tankOpen()) {
       return { msg: stop().lockUntil
@@ -1965,6 +1974,14 @@
              the letters are tapped by hand - but the agreement the taps rest
              on, kept in view so it cannot drift. */
           '<div class="note" style="margin:8px 0 0">3 min = <b>u</b> &nbsp;&middot;&nbsp; 1 hr = <b>U</b></div>' +
+          (dk === key(today)
+            ? (e.tFreeze
+                ? '<div class="note" style="margin:8px 0 0">T frozen for the rest of today &mdash; any more T is a miss.</div>'
+                : '<div class="btns" style="margin-top:8px"><button class="btn ' + ((_armTFreeze && Date.now() - _armTFreeze < 8000) ? 'danger' : 'ghost') + '" data-act="tfreeze" style="flex:1">' +
+                  ((_armTFreeze && Date.now() - _armTFreeze < 8000)
+                    ? 'Tap again to freeze T for the rest of today'
+                    : 'Freeze T for today') + '</button></div>')
+            : '') +
         '</div>' +
         (tally.over
           ? (tally.blown
@@ -2137,20 +2154,20 @@
               /* Spent for the day it says so on the button. A control that
                  looks live and then refuses reads as a fault, not a rule. */
               '<button class="btn ghost" data-act="thank3" style="width:100%' +
-                (((e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
-                ((e.thankPull || 0) >= PULL_MAX_PER_DAY ? 'Pulled today' : 'Pull 3 &rarr; +1') +
+                ((thankFrozen || (e.thankPull || 0) >= PULL_MAX_PER_DAY) ? ';opacity:.4' : '') + '">' +
+                (thankFrozen ? 'Frozen today' : ((e.thankPull || 0) >= PULL_MAX_PER_DAY ? 'Pulled today' : 'Pull 3 &rarr; +1')) +
               '</button>' +
             '</div>' +
             '<div style="flex:1">' +
               '<div class="dirlbl">8ANK &rarr; TH8NK</div>' +
-              '<button class="btn ghost" data-act="dep3" style="width:100%">Deposit 3 &rarr; +4</button>' +
+              '<button class="btn ghost" data-act="dep3" style="width:100%' + (thankFrozen ? ';opacity:.4' : '') + '">' + (thankFrozen ? 'Frozen today' : 'Deposit 3 &rarr; +4') + '</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
         tankThankRow(dk) +
         '<div class="field">' +
           /* A same-day brake on the TH8NK: it stops the TH8NK paying for the
-             rest of today, while transfers in and out still work. It wears
+             rest of today and stops every transfer in or out of it. It wears
              off on its own at midnight. Offered only on today's card -
              freezing a past day means nothing. */
           (isTodayJ8
@@ -2314,6 +2331,15 @@
            after the fact is not an allowance, and one hair is small enough
            that a mis-tap costs almost nothing - which is exactly why it can
            afford to be final where a miss cannot. */
+        if (a === 'tfreeze') {
+          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
+          if (!(_armTFreeze && Date.now() - _armTFreeze < 8000)) { _armTFreeze = Date.now(); openSheet(dk, id); return; }
+          _armTFreeze = 0;
+          e.tFreezeSnap = (e.items && e.items.T) || '';   // what T already shows stands
+          e.tFreeze = 1;
+          commit(true);
+          toast('T frozen for the rest of today'); return;
+        }
         if (a === 'hair') {
           if (hairsLeft(dk) <= 0) { toast('None left this week - put it on TH'); return; }
           e.hairs = (e.hairs || 0) + 1;
@@ -2429,6 +2455,7 @@
         }
         if (a === 'tclear')  { e.travPick = ''; e.trav = ''; e.travWho = ''; e.travWhat = ''; commit(true); return; }
 
+        if ((a === 'thank3' || a === 'dep3') && e.thankFreeze) { toast('TH8NK frozen for today'); return; }
         if (a === 'thank3') {
           if ((e.thankPull || 0) >= PULL_MAX_PER_DAY) {
             toast('That is the day\'s limit - ' + PULL_MAX_PER_DAY + ' out, ' +
@@ -2510,8 +2537,12 @@
            to be remembered. It is set here on the tap, never recomputed on
            render, so undoing it afterwards sticks. */
         if (fitOver(items).over) e.miss = true;
+        if (f === 'T' && e.tFreeze && fitRank(items.T) > fitRank(e.tFreezeSnap)) {
+          e.miss = true; e.tFrozenMiss = true;
+        }
 
         commit(true);
+        if (e.tFrozenMiss && f === 'T' && fitRank(items.T) > fitRank(e.tFreezeSnap)) toast('T was frozen - FIT missed');
       });
     });
   }
