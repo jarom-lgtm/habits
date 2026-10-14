@@ -749,10 +749,10 @@
   function missedOn(dk, id) {
     var e = get(dk, id);
     if (!e) return false;
-    if (id === 'STOP') return !!e.miss;          // set when the bank goes below zero
+    if (id === 'STOP') return !!e.miss || !!e.bankMiss;   // by hand, or the Bank below zero / frozen
     if (id === 'H2Only') return !!e.broke;       // the tap itself is the break
     if (id === 'JUST8') return !!e.miss || !!e.bankMiss;  // by hand, or both banks spent
-    if (id === 'FIT') return !!e.miss || !!e.tankMiss;    // by hand, or the Tank came up short overnight
+    if (id === 'FIT') return !!e.miss || (!!e.tankMiss && !e.missUndone);    // by hand, or the Tank came up short overnight
     return !!e.miss;
   }
 
@@ -943,6 +943,7 @@
     for (var i = 0; i < HABITS.length; i++) {
       var id = HABITS[i].id, e = day[id];
       if (!e || e.miss) return false;
+      if (id === 'STOP' && e.bankMiss) return false;   // STOP's walk never reads JUST8's, so this cannot loop
       if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) return false;   // not begun
       switch (id) {
         case 'H2Only':   if (!e.logged || e.broke) return false; break;
@@ -1005,9 +1006,9 @@
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, greenRun: 0, onBank: {}, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
+    var res = { bank: 0, thank: 0, greenRun: 0, onBank: {}, auto: {}, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.JUST8);
-    var bank = 0, th = 0, run = 0;
+    var bank = 0, th = 0, run = 0, writeOff = false;
     var anc = anchor();
 
     var n = daysBetween(start, today);
@@ -1027,7 +1028,11 @@
          NEXT day, rather than at the foot of the day it happened on: that way
          the day that went short actually reads short - "-3", in red - instead
          of closing on a tidy 0 that looked like nothing had happened. */
-      if (bank < 0) {
+      /* Only a day that stayed a miss writes its shortfall off. One whose
+         miss was undone by hand carries it forward instead, so undoing a
+         miss can never make the debt disappear - it is still there to be
+         fixed. */
+      if (bank < 0 && writeOff) {
         mv(res, dk, '8ANK', -bank, 'shortfall from the day before, written off with the miss');
         bank = 0;
       }
@@ -1176,7 +1181,9 @@
          deliberate act, so the app leaves the 8ANK short and lets him decide -
          a rescue he did not ask for is a decision taken away from him. */
 
-      res.misses[dk] = (bank < 0);   // nothing left to reach for
+      res.auto[dk]   = (bank < 0);   // nothing left to reach for
+      res.misses[dk] = res.auto[dk] && !(e && e.missUndone);
+      writeOff = res.misses[dk];
       res.closing[dk] = { bank: bank, th: th };
       d = addDays(d, 1);
     }
@@ -1254,7 +1261,7 @@
 
   function stop() {
     if (_stop) return _stop;
-    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, misses: {}, short: {}, fitShort: {}, opening: {}, closing: {}, log: {} };
+    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, auto: {}, misses: {}, short: {}, fitShort: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.STOP);
     var bank = 0, tank = 0, clean = 0, lockUntil = null;
     var anc = anchor();
@@ -1306,9 +1313,16 @@
       var fitCost = fitPtsOn(dk);
       res.fitShort[dk] = false;
       if (fitCost) {
+        var fE = get(dk, 'FIT');
         if (tank >= fitCost) {
           tank -= fitCost;
           mv(res, dk, 'Tank', -fitCost, 'FIT - past midnight');
+        } else if (fE && fE.missUndone) {
+          /* The miss was undone by hand, so the Tank owes the rest rather
+             than having it written off. */
+          tank -= fitCost;
+          mv(res, dk, 'Tank', -fitCost, 'FIT - past midnight, Tank short (miss undone)');
+          res.fitShort[dk] = true;
         } else {
           if (tank > 0) mv(res, dk, 'Tank', -tank, 'FIT - past midnight, Tank came up short');
           res.fitShort[dk] = true;
@@ -1327,7 +1341,9 @@
       var bankFreezeMiss = !!(e && e.bankFreeze) && curSlipMin > stopBankFreezeSnap;
 
       var numericMiss = bank < 0;
-      var miss = numericMiss || bankFreezeMiss;
+      var undone = !!(e && e.missUndone);
+      res.auto[dk] = numericMiss || bankFreezeMiss;
+      var miss = res.auto[dk] && !undone;
       res.misses[dk] = miss;
       if (numericMiss) res.short[dk] = -bank;      // how far under, before the write-off
 
@@ -1335,8 +1351,10 @@
          next day opens at zero. Carrying a negative forward charged the same
          slip again every morning until it had been earned back, which turned
          one bad night into a fortnight of failures. A freeze-only miss has no
-         real debt behind it - the balance stands as it actually is. */
-      if (numericMiss) {
+         real debt behind it - the balance stands as it actually is. A miss
+         undone by hand keeps its debt too, carried into the next day, so it
+         can be fixed rather than forgiven. */
+      if (numericMiss && !undone) {
         mv(res, dk, 'Bank', -bank, 'debt written off with the miss');
         bank = 0;
       }
@@ -1430,12 +1448,25 @@
 
   /* Write the computed misses onto the days they happened, so the streak
      breaks on the right date rather than only showing as a total. */
+  /* An undo only covers the shortfall it was given for. Once the numbers no
+     longer say miss - the balance was fixed - it is dropped, so a fresh
+     shortfall later that day is a miss again until it too is undone. */
+  function clearStaleUndos() {
+    var sa = stop().auto, ja = j8().auto, fs = stop().fitShort, changed = false;
+    Object.keys(state.days).forEach(function (dk) {
+      [['STOP', sa], ['JUST8', ja], ['FIT', fs]].forEach(function (p) {
+        var e = get(dk, p[0]);
+        if (e && e.missUndone && !p[1][dk]) { delete e.missUndone; prune(dk, p[0]); changed = true; }
+      });
+    });
+    if (changed) { _j8 = null; _stop = null; save(); }
+  }
   function refreshStopMisses() {
     var m = stop().misses, changed = false;
     Object.keys(m).forEach(function (dk) {
       var e = get(dk, 'STOP');
-      if (m[dk] === !!(e && e.miss)) return;
-      entry(dk, 'STOP', true).miss = m[dk];
+      if (m[dk] === !!(e && e.bankMiss)) return;
+      entry(dk, 'STOP', true).bankMiss = m[dk];
       prune(dk, 'STOP');
       changed = true;
     });
@@ -1533,6 +1564,7 @@
   }
 
   function render() {
+    clearStaleUndos();
     refreshStopMisses();
     refreshJ8Misses();
     refreshFitTankMisses();
@@ -1745,6 +1777,15 @@
       ? '<button class="btn danger" data-act="miss" style="box-shadow:inset 0 0 0 2px var(--danger)">Missed &mdash; undo</button>'
       : '<button class="btn danger" data-act="miss">Miss</button>';
   }
+  /* The miss the numbers decide, with a way to take it back before the day
+     is finalized. Undoing keeps the shortfall on the balance to be fixed. */
+  function autoMissBtn(dk, id, e) {
+    var auto = id === 'STOP' ? stop().auto[dk] : id === 'JUST8' ? j8().auto[dk] : fitTankShortOn(dk);
+    if (!auto) return '';
+    return '<div class="btns" style="margin-bottom:8px">' + (e.missUndone
+      ? '<button class="btn ghost" data-act="automiss">Miss undone &mdash; shortfall still owed &middot; put it back</button>'
+      : '<button class="btn danger" data-act="automiss">Missed by the numbers &mdash; undo</button>') + '</div>';
+  }
   function doneBtn() {
     return '<button class="btn go" data-act="close">Done</button>';
   }
@@ -1931,7 +1972,8 @@
             : '') +
         '</div>' +
         tankThankRow(dk) +
-        '<div class="btns">' + doneBtn() + '</div>';
+        autoMissBtn(dk, 'STOP', e) +
+        '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
     else if (id === 'FIT') {
@@ -2004,6 +2046,7 @@
             ? '<div class="note" style="margin:8px 0 0"><b>' + e.hairs + '</b> used today.</div>'
             : '') +
         '</div>' +
+        autoMissBtn(dk, 'FIT', e) +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
@@ -2190,6 +2233,7 @@
                     : 'Slow the 8ANK for today') + '</button></div>')
             : '') +
         '</div>' +
+        autoMissBtn(dk, 'JUST8', e) +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
@@ -2296,6 +2340,11 @@
              opening, so pressing Done should leave a tick rather than nothing. */
           if (id === 'H2Only' && !e.broke && !e.miss) e.logged = true;
           commit(false); closeOv('ovSheet'); return;
+        }
+        if (a === 'automiss') {
+          e.missUndone = !e.missUndone;
+          commit(true);
+          toast(e.missUndone ? id + ' miss undone - the shortfall is still owed' : id + ' miss put back'); return;
         }
         if (a === 'miss')  {
           var when = parse(dk).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
