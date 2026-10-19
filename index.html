@@ -243,7 +243,7 @@
   .finalbar.arm { border-style:solid; border-color:#c2483d; color:#e2685a; }
   .finaldone { margin:14px 0 4px; padding:12px 14px; border-radius:12px; background:var(--card);
     color:var(--dim); font-size:12px; text-align:center; letter-spacing:.2px; }
-  /* point and minute log */
+  /* point log */
   .lgday { margin:0; }
   .lgd { font-size:11px; color:var(--dim); letter-spacing:.4px; text-transform:uppercase; margin:0 0 5px; }
   /* The log only grows, so it opens as a list of days and nothing else. */
@@ -389,7 +389,7 @@
     <div class="grab"></div>
     <button class="row" id="mNotes"><span class="ic">&#8599;</span><span>Notes<small>Every note you have written, one page of text</small></span></button>
     <button class="row" id="mStreaks"><span class="ic">&#9201;</span><span>Streaks<small>Current, best, and every run so far</small></span></button>
-    <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point and minute log<small>Every movement, earned and used, one timeline</small></span></button>
+    <button class="row" id="mLog"><span class="ic">&#8801;</span><span>Point log<small>Every movement, earned and used, one timeline</small></span></button>
     <button class="row" id="mStarts"><span class="ic">&#9998;</span><span>Start dates and history<small>When each one began, and what came before this copy</small></span></button>
     <button class="row" id="mPin"><span class="ic">&#128273;</span><span>PIN lock<small id="mPinSub">Ask for a PIN when the app opens</small></span></button>
   </div>
@@ -426,7 +426,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v48';
+  var APP_VERSION = 'v90';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -549,8 +549,9 @@
   }
 
   /* ---------------- FIT sizing ----------------
-     Each behaviour is off, -u, -uu or -U. The day's whole allowance is two
-     lowercase units or one uppercase Unit, so -uu on one thing spends it all
+     Each behaviour is off, -u or -U: 8 minutes or an hour, each in one
+     sitting, with no split. The day's whole allowance is two
+     lowercase units or one uppercase Unit, so -U on one thing spends it all
      just as surely as -u on two things does. One unit is a green day still -
      not a perfect one, but the tick holds. Two is the allowance spent, and
      the card goes amber. Three or more is past it, and that is a miss - said
@@ -592,10 +593,11 @@
   }
 
   /* M is stamped rather than judged by eye: the time the phone goes down
-     decides its own size. Under half an hour past 12 is -u, under the
-     hour -uu, an hour or more is -U. The -U pays for that first hour; what
-     runs past 1 costs 8ANK points at one an hour - M being the only
-     behaviour allowed to reach for them. */
+     decides its own size, on the same sizes as every other letter. Up to 8
+     minutes past 12 is -u; past that it is -U, with no split. The -U pays
+     for that first hour; what runs past 1 costs 8ANK points at one an
+     hour, paid as part of JUST8's day. A stored -uu from before still
+     counts as two units. */
   function bedMinutesOver(hm) {
     if (!hm) return null;
     var p = hm.split(':'), h = +p[0], m = +p[1];
@@ -604,8 +606,7 @@
   }
   function bedGrade(mins) {
     if (mins === null || mins <= 0) return '';
-    if (mins < 30) return 'u';
-    if (mins < 60) return 'uu';
+    if (mins <= 8) return 'u';
     return 'U';
   }
   // A whole point for any part of an hour past 1, not a quarter per quarter
@@ -638,13 +639,12 @@
 
   var DEFAULT_STARTS = {
     BED: '2018-09-15', H2Only: '2019-01-02', WERKOUTS: '2019-01-02', NOTE: '2024-08-17',
-    RAK: '2026-08-30', JUST8: '2026-08-30', STOP: '2026-08-30', FIT: '2026-08-30'
+    RAK: '2026-08-30', JUST8: '2026-08-30', STOP: '2026-10-18', FIT: '2026-08-30'
   };
 
   var state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
-  // Cached results of the J and S walks; cleared on every write.
   // Cached result of the JUST8 pass; cleared on every write.
-  var _j8 = null, _stop = null;
+  var _j8 = null;
 
   function load() {
     try {
@@ -664,6 +664,7 @@
         state.demoSeed = p.demoSeed;
         if (p.anchor) state.anchor = p.anchor;
         if (p.anchorLocked) state.anchorLocked = true;
+        if (p.stopReset) state.stopReset = true;
       }
     } catch (e) { /* blocked storage: run from memory this session */ }
     if (!state.finals) state.finals = {};
@@ -675,7 +676,7 @@
     });
   }
   function save() {
-    _j8 = null; _stop = null;                    // any write can move the banks
+    _j8 = null;                                  // any write can move the banks
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save - storage is blocked'); }
   }
@@ -742,6 +743,21 @@
      would be a running total of something the app deliberately does not score. */
   function hairsLeft(dk) { return Math.max(0, HAIRS_PER_WEEK - hairsUsedInWeek(dk)); }
 
+  /* ---------------- STOP's weekly words ----------------
+     Eight a week on the same Sunday-to-Saturday week, counted up rather than
+     down, and not carried over. Inside the eight the day stays green; the
+     one after them is a miss. A whole week with none used pays into the
+     8ANK - see the JUST8 walk. */
+  var WORDS_PER_WEEK = 8, WORDS_CLEAN_PTS = 3;
+  function wordsUsedInWeek(dk) {
+    var s = weekStart(parse(dk)), n = 0;
+    for (var i = 0; i < 7; i++) {
+      var day = state.days[key(addDays(s, i))];
+      if (day && day.STOP && day.STOP.words) n += day.STOP.words;
+    }
+    return n;
+  }
+
   /* ---------------- streaks ----------------
      A streak runs from its start date and is broken ONLY by an explicitly
      recorded miss. Forgetting to open the app on a Tuesday does nothing - the
@@ -749,10 +765,10 @@
   function missedOn(dk, id) {
     var e = get(dk, id);
     if (!e) return false;
-    if (id === 'STOP') return !!e.miss || !!e.bankMiss;   // by hand, or the Bank below zero / frozen
     if (id === 'H2Only') return !!e.broke;       // the tap itself is the break
-    if (id === 'JUST8') return !!e.miss || !!e.bankMiss;  // by hand, or both banks spent
-    if (id === 'FIT') return !!e.miss || (!!e.tankMiss && !e.missUndone);    // by hand, or the Tank came up short overnight
+    if (id === 'JUST8') return !!e.miss || !!e.bankMiss;  // by hand, or the 8ANK below zero
+    // A Tank miss recorded before the Tank went still stands on its day.
+    if (id === 'FIT') return !!e.miss || (dk < NEW_RULES && !!e.tankMiss && !e.missUndone);
     return !!e.miss;
   }
 
@@ -851,10 +867,12 @@
   }
 
   // Cups cost a point per 3 cups; CupS cost 3 points a cup; the time past the
-  // eight-hour window costs whatever overPoints makes of it.
-  function j8DayCost(e) {
-    if (!e) return 0;
-    var c = 0;
+  // eight-hour window costs whatever overPoints makes of it. From NEW_RULES
+  // a late night on FIT is part of the same day's cost, so it pays from
+  // wherever the day pays - the TH8NK on an open day, else the 8ANK.
+  function j8DayCost(e, dk) {
+    var c = (dk && dk >= NEW_RULES) ? fitPtsOn(dk) : 0;
+    if (!e) return Math.ceil(c * 4) / 4;
     if (e.cups)  c += e.cups / 3;
     if (e.cupS)  c += e.cupS * 3;
     c += overPoints(windowMinutes(e));
@@ -868,8 +886,8 @@
      protects only what it had already taken in by the moment it was
      tapped; anything past that snapshot falls to the 8ANK same as if the
      day were never open at all. */
-  function j8OnBank(e, open) {
-    var jCost = j8DayCost(e);
+  function j8OnBank(e, open, dk) {
+    var jCost = j8DayCost(e, dk);
     if (!open) return jCost;
     if (!(e && e.thankFreeze)) return 0;
     var onThank = Math.min(jCost, +(e && e.thankFreezeSnap) || 0);
@@ -878,16 +896,17 @@
 
   /* What a late night costs, read from the stamped time rather than a figure
      stored beside it - so a change to what M costs reaches every night on
-     record, the way every other rule here does. Paid out of the STOP Tank,
-     not the JUST8 economy - see stop(). */
+     record, the way every other rule here does. Paid as part of JUST8's
+     day from NEW_RULES - see j8DayCost. */
   function fitPtsOn(dk) { var f = get(dk, 'FIT'); return (f && f.bed) ? bedPoints(bedMinutesOver(f.bed)) : 0; }
 
   /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
      the three can never drift apart.
 
-     Earning: a point a day, plus a second one each Sunday standing in for
-     Zunday - the microsecond eighth day - which makes eight a week. The TH8NK
-     took 3 a week on the same rhythm until EARN_TO_8ANK; now the 8ANK does.
+     Earning, from NEW_RULES: 8 into the 8ANK every Sunday, on top of
+     whatever is already there; 1 for each all-green day; and 3 on a Sunday
+     for a whole STOP week just gone with no words used. Nothing else pays.
+     Days before NEW_RULES keep the rules they were earned under.
 
      Deposits: 3 out of the 8ANK become 4 in the TH8NK - a point of interest for
      putting it away. It still only ever comes back at the one-third rate, so
@@ -902,14 +921,19 @@
 
   /* The day the weekly 3 and the perfect-day point stopped going into the
      TH8NK and started landing in the 8ANK. Days before it keep the old rule,
-     so nothing already earned moves. The TH8NK now fills only by what is
-     put there on purpose - deposits from the 8ANK or moves from the Tank. */
+     so nothing already earned moves. The TH8NK fills only by what is put
+     there on purpose - deposits from the 8ANK. */
   var EARN_TO_8ANK = '2026-10-12';
 
-  /* Eight all-green days in a row pay 3 into the 8ANK, and the count starts
-     again from nothing for the next eight. Any day that is not all green
-     resets it. Counted from EARN_TO_8ANK, on top of every other point. */
+  /* The day the earning above took over, STOP became the weekly words, and
+     the STOP Bank and Tank went. A late night's cost moved onto JUST8's day
+     from here too. */
+  var NEW_RULES = '2026-10-18';
+
+  /* Between EARN_TO_8ANK and NEW_RULES, eight all-green days in a row paid 3
+     into the 8ANK and the count started again. Kept only for those days. */
   var GREEN_RUN = 8, GREEN_RUN_PTS = 3;
+  var WEEKLY_PTS = 8;
 
   /* The most that can come OUT of the TH8NK in one day: nine, which arrives in
      the 8ANK as three. Three taps of Pull 3. The cap is on the amount leaving
@@ -922,16 +946,13 @@
   var _armThankFreeze = 0;                       // first tap on a same-day TH8NK freeze; the second within 8s does it
   var _armBankSlow = 0;                          // first tap on a same-day 8ANK slow; the second within 8s does it
 
-  /* Two tiers of a good day, paid into two different reserves.
+  /* All green: every one of the eight shows a tick - nothing amber, nothing
+     missed. From NEW_RULES that is a point into the 8ANK. On FIT a single
+     small unit is still green; any mark on T is not. Words used inside
+     STOP's eight keep it green.
 
-     All green: every one of the eight shows a tick - nothing amber, nothing
-     missed. That was a point into the 8ANK before EARN_TO_8ANK; now it only
-     counts toward the eight-in-a-row bonus. On FIT a single small unit is
-     still green; any mark on T is not.
-
-     Perfect: all green, nothing at all marked on FIT - all five letters
-     clear, not merely inside the allowance - and no CupS. That is a point
-     into the 8ANK (into the TH8NK before EARN_TO_8ANK).
+     Perfect: all green, nothing at all marked on FIT and no CupS. It paid
+     only before NEW_RULES and earns nothing now.
 
      Both are read straight off the entries rather than off cardState, because
      the JUST8 card's state depends on the bank and the bonus is paid INTO the
@@ -943,11 +964,10 @@
     for (var i = 0; i < HABITS.length; i++) {
       var id = HABITS[i].id, e = day[id];
       if (!e || e.miss) return false;
-      if (id === 'STOP' && e.bankMiss) return false;   // STOP's walk never reads JUST8's, so this cannot loop
       if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) return false;   // not begun
       switch (id) {
         case 'H2Only':   if (!e.logged || e.broke) return false; break;
-        case 'STOP':     if (!e.logged || e.slip)  return false; break;
+        case 'STOP':     if (!e.logged) return false; break;
         case 'JUST8':    if (!e.eatStart || !e.eatEnd) return false; break;
         case 'WERKOUTS': if (!e.done) return false; break;
         case 'FIT':      if (!e.logged || fitOver(e.items).spent) return false; break;
@@ -976,7 +996,7 @@
 
      It touches no entry. Days before the anchor keep whatever they held; the
      anchor only says where the arithmetic reopens, and it says so out loud in
-     the point and minute log rather than appearing as a balance from nowhere. */
+     the point log rather than appearing as a balance from nowhere. */
   function anchor() {
     var a = state.anchor;
     if (!a || !/^\d{4}-\d{2}-\d{2}$/.test(a.date || '')) return null;
@@ -985,28 +1005,25 @@
     return a;
   }
 
-  /* What the four balances would come to on a given day with no correction
+  /* What the two balances would come to on a given day with no correction
      applied - the figure a typed balance is measured against to work out the
      correction it implies. Read with the anchor lifted, or it would be
      measuring against itself. */
   function openingWithoutAnchor(dk) {
     var keep = state.anchor;
-    state.anchor = null; _j8 = null; _stop = null;
-    var j = j8().opening[dk], s = stop().opening[dk];
-    state.anchor = keep; _j8 = null; _stop = null;
+    state.anchor = null; _j8 = null;
+    var j = j8().opening[dk];
+    state.anchor = keep; _j8 = null;
     return {
       bank8:    j ? j.bank : 0,
       thank:    j ? j.th   : 0,
-      stopBank: s ? s.bank : 0,
-      stopTank: s ? s.tank : 0,
-      hasJ8:    !!j,
-      hasStop:  !!s
+      hasJ8:    !!j
     };
   }
 
   function j8() {
     if (_j8) return _j8;
-    var res = { bank: 0, thank: 0, greenRun: 0, onBank: {}, auto: {}, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
+    var res = { bank: 0, thank: 0, onBank: {}, auto: {}, misses: {}, holidaysUsed: {}, open: {}, opening: {}, closing: {}, log: {} };
     var start = parse(state.starts.JUST8);
     var bank = 0, th = 0, run = 0, writeOff = false;
     var anc = anchor();
@@ -1020,7 +1037,7 @@
       var e = get(dk, 'JUST8');
       var yr = d.getFullYear();
 
-      /* Same rule the Bank on S has always had: the miss IS the penalty, so
+      /* The miss IS the penalty, so
          the shortfall is written off with it and the next day opens at zero.
          Carried forward, one heavy day charged itself again every morning
          until it had been earned back - which read as a fortnight of failures
@@ -1056,11 +1073,25 @@
         mv(res, dk, 'TH8NK', +anc.adj.thank || 0, 'balance set by hand');
       }
 
-      /* A point lands each day as the day arrives - never eight in a lump at
-         the head of the week - and Sunday carries a second one for Zunday. */
-      bank += 1;
-      mv(res, dk, '8ANK', 1, 'daily');
-      if (d.getDay() === 0) { bank += 1; mv(res, dk, '8ANK', 1, 'Zunday'); }
+      /* From NEW_RULES the week's 8 land together on Sunday, added to what
+         is there - nothing resets. Before it a point landed each day, with
+         a second on Sunday for Zunday. */
+      if (dk >= NEW_RULES) {
+        if (d.getDay() === 0) {
+          bank += WEEKLY_PTS; mv(res, dk, '8ANK', WEEKLY_PTS, 'weekly ' + WEEKLY_PTS);
+          /* The STOP week that just ended, Sunday to Saturday, with not one
+             word used. Only a week STOP was running for the whole of, and
+             only one under these rules, counts. */
+          var wk = key(addDays(d, -7));
+          if (wk >= NEW_RULES && wk >= state.starts.STOP && wordsUsedInWeek(wk) === 0) {
+            bank += WORDS_CLEAN_PTS; mv(res, dk, '8ANK', WORDS_CLEAN_PTS, 'STOP - a week with no words');
+          }
+        }
+      } else {
+        bank += 1;
+        mv(res, dk, '8ANK', 1, 'daily');
+        if (d.getDay() === 0) { bank += 1; mv(res, dk, '8ANK', 1, 'Zunday'); }
+      }
 
       /* The weekly 3 lands on Sunday. This used to fire every seventh day
          counted from the start date, which only coincides with Sunday when the
@@ -1068,7 +1099,7 @@
          start date is ever edited. */
       /* From EARN_TO_8ANK on it lands in the 8ANK instead, so every point
          arrives in one place and he decides from there where it goes. */
-      if (d.getDay() === 0) {
+      if (d.getDay() === 0 && dk < NEW_RULES) {
         if (dk >= EARN_TO_8ANK) { bank += 3; mv(res, dk, '8ANK', 3, 'weekly 3'); }
         else                    { th   += 3; mv(res, dk, 'TH8NK', 3, 'weekly 3'); }
       }
@@ -1091,26 +1122,25 @@
          and only cost beyond that point falls to the 8ANK instead - the same
          way it would on any ordinary day. Re-taxing the whole day the moment
          the freeze is tapped would have punished spend that was already fine
-         when it happened. FIT's late-night cost no longer runs through here
-         at all - it is paid straight out of the STOP Tank instead, in stop()
-         below. */
+         when it happened. From NEW_RULES FIT's late-night cost is part of
+         the day's cost here too. */
       /* The TH8NK can only pay what it actually has. Whatever is left once it
          runs dry overflows to the 8ANK at the normal rate, the same as if it
          had been frozen at that moment. What it has counts the day's own
          transfers in and out, so catching an overflow and moving points
          across from the 8ANK covers it after the fact. */
-      var jCost = j8DayCost(e), onBank = j8OnBank(e, open), onThank = jCost - onBank;
-      var sEd = get(dk, 'STOP');
-      var thAvail = th + ((e && e.thankDep) ? (e.thankDep / 3) * 4 : 0) + ((sEd && sEd.tankToThank) || 0)
+      var jCost = j8DayCost(e, dk), onBank = j8OnBank(e, open, dk), onThank = jCost - onBank;
+      var thAvail = th + ((e && e.thankDep) ? (e.thankDep / 3) * 4 : 0) + ((e && e.tankToThank) || 0)
                        - ((e && e.thankPull) || 0) - ((e && e.thankToTank) || 0);
       var overflow = Math.max(0, onThank - Math.max(0, thAvail));
       var frozenPart = onBank;
       onThank -= overflow; onBank += overflow;
       res.onBank[dk] = onBank;
       th -= onThank; bank -= onBank;
-      if (onThank)    mv(res, dk, 'TH8NK', -onThank, 'cups & hours');
-      if (frozenPart) mv(res, dk, '8ANK',  -frozenPart, 'cups & hours' + (open ? ' - TH8NK frozen' : ''));
-      if (overflow)   mv(res, dk, '8ANK',  -overflow, 'cups & hours - TH8NK ran out');
+      var why = (dk >= NEW_RULES && fitPtsOn(dk)) ? 'cups, hours & late night' : 'cups & hours';
+      if (onThank)    mv(res, dk, 'TH8NK', -onThank, why);
+      if (frozenPart) mv(res, dk, '8ANK',  -frozenPart, why + (open ? ' - TH8NK frozen' : ''));
+      if (overflow)   mv(res, dk, '8ANK',  -overflow, why + ' - TH8NK ran out');
 
       /* Slowing the 8ANK makes every point it pays from that moment on cost
          three. What had already landed on it when the slow was tapped is
@@ -1122,33 +1152,25 @@
         if (slowed) { bank -= slowed * 2; mv(res, dk, '8ANK', -slowed * 2, '8ANK slowed - 3 for every 1'); }
       }
 
-      /* Before EARN_TO_8ANK an all-green day earned a point and a perfect one
-         a second into the TH8NK; from it, only the perfect day pays, into the
-         8ANK. Only entries are read here, never the derived misses - a bonus that fed back into the balance it
-         was computed from could not settle. */
-      /* From EARN_TO_8ANK an all-green day earns nothing by itself - it counts
-         toward the eight-in-a-row bonus below instead. Only a perfect day
-         still pays a point of its own. */
-      if (dk < EARN_TO_8ANK && allGreen(dk)) { bank += 1; mv(res, dk, '8ANK',  1, 'all green'); }
-      if (perfectDay(dk)) {
+      /* An all-green day is a point into the 8ANK - before EARN_TO_8ANK and
+         again from NEW_RULES. In between, only a perfect day paid, and eight
+         green in a row paid 3. Only entries are read here, never the derived
+         misses - a bonus that fed back into the balance it was computed from
+         could not settle. */
+      var green = allGreen(dk);
+      if ((dk < EARN_TO_8ANK || dk >= NEW_RULES) && green) { bank += 1; mv(res, dk, '8ANK', 1, 'all green'); }
+      if (dk < NEW_RULES && perfectDay(dk)) {
         if (dk >= EARN_TO_8ANK) { bank += 1; mv(res, dk, '8ANK',  1, 'perfect day'); }
         else                    { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
       }
-      /* Today is still being filled in, so a today that is not green yet
-         leaves the count shown where yesterday left it rather than at zero. */
-      if (dk >= EARN_TO_8ANK) {
-        var before = run;
-        if (allGreen(dk)) {
+      if (dk >= EARN_TO_8ANK && dk < NEW_RULES) {
+        if (green) {
           run += 1;
           if (run === GREEN_RUN) {
             bank += GREEN_RUN_PTS; mv(res, dk, '8ANK', GREEN_RUN_PTS, GREEN_RUN + ' green days in a row');
             run = 0;
           }
-          res.greenRun = run;
-        } else {
-          run = 0;
-          res.greenRun = (i === n) ? before : 0;
-        }
+        } else run = 0;
       }
 
       /* Transfers are applied exactly as they were made. They used to be
@@ -1170,12 +1192,10 @@
         mv(res, dk, 'TH8NK', -e.thankPull, 'moved to the 8ANK');
         mv(res, dk, '8ANK',  e.thankPull / 3, 'from the TH8NK');
       }
-      /* Points to and from the STOP Tank, one for one. stop() writes the Tank
-         side of each move off these same entries, so neither walk reads the
-         other's balance and the two cannot disagree. */
-      var sE = get(dk, 'STOP');
+      /* Moves to and from the old STOP Tank, made before it went. Only the
+         TH8NK's side is still counted, so what the TH8NK held stays put. */
       if (e && e.thankToTank)   { th -= e.thankToTank;   mv(res, dk, 'TH8NK', -e.thankToTank, 'moved to the Tank'); }
-      if (sE && sE.tankToThank) { th += sE.tankToThank;  mv(res, dk, 'TH8NK', sE.tankToThank, 'from the Tank'); }
+      if (e && e.tankToThank)   { th += e.tankToThank;   mv(res, dk, 'TH8NK', e.tankToThank, 'from the Tank'); }
 
       /* Nothing is pulled automatically any more. Spending the reserve is a
          deliberate act, so the app leaves the 8ANK short and lets him decide -
@@ -1224,31 +1244,8 @@
     if (changed) save();
   }
 
-  /* ---------------- STOP bank ----------------
-     Every day without a slip banks a minute; a slip spends the minutes it
-     cost.                                                                    */
-  /* One walk produces the bank and every miss together. This used to be two
-     near-identical loops, which is precisely the arrangement that lets a
-     balance and the misses drawn from it drift apart. */
-  /* The Tank is a long-term reserve alongside the Bank. Minutes move Bank to
-     Tank one for one and never come back to the Bank - the only way out is
-     to the TH8NK, and only after 8 unbroken days - the T stands for the
-     wait. Named Bank and Tank rather than reusing the 8ANK and
-     TH8NK spelling, so the two economies cannot be mistaken for each other. */
-  var TANK_UNLOCK_DAYS = 8;
-  var _armLock = 0;                              // first tap on the lock; the second within 8s does it
-  var _armFreeze = 0;                            // first tap on a same-day Tank freeze; the second within 8s does it
-  var _armStopBankFreeze = 0;                    // first tap on a same-day Bank freeze; the second within 8s does it
-  /* Once the eight are in hand the Tank can be locked again, by choice, for
-     eight days. The moment of reaching it is the moment with the most resolve
-     in it, and this is a way to spend that resolve on the next stretch rather
-     than on the Tank. Offered only while the Tank is actually open - so the
-     eight have to pass before it can be offered again, and the lock cannot be
-     piled up past the point of ever opening. Two taps, and no way back. */
-  var TANK_LOCK_DAYS = 8;
-
   /* One movement of one balance, on one day, with the reason it happened.
-     The log is written by the same two walks that produce the balances, so it
+     The log is written by the same walk that produces the balances, so it
      cannot drift away from them - a ledger computed separately would be a
      second opinion, and the point of a ledger is that there is only one. */
   function mv(res, dk, acct, amt, why) {
@@ -1259,218 +1256,16 @@
   // Where the sample history begins. Bumping this reseeds an existing sandbox.
   var DEMO_START = '2026-06-01';
 
-  function stop() {
-    if (_stop) return _stop;
-    var res = { bank: 0, tank: 0, cleanRun: 0, lockUntil: null, auto: {}, misses: {}, short: {}, fitShort: {}, opening: {}, closing: {}, log: {} };
-    var start = parse(state.starts.STOP);
-    var bank = 0, tank = 0, clean = 0, lockUntil = null;
-    var anc = anchor();
-
-    var n = daysBetween(start, today);
-    if (n < 0) { _stop = res; return res; }
-
-    var d = start;
-    for (var i = 0; i <= n; i++) {
-      var dk = key(d), e = get(dk, 'STOP');
-
-      res.opening[dk] = { bank: bank, tank: tank };
-
-      // The same correction as the JUST8 walk, for the same reason.
-      if (anc && anc.adj && dk === anc.date) {
-        bank += (+anc.adj.stopBank || 0);
-        tank += (+anc.adj.stopTank || 0);
-        mv(res, dk, 'Bank', +anc.adj.stopBank || 0, 'balance set by hand');
-        mv(res, dk, 'Tank', +anc.adj.stopTank || 0, 'balance set by hand');
-      }
-
-      if (e && e.slip) {
-        bank -= (e.min || 0); clean = 0;
-        mv(res, dk, 'Bank', -(e.min || 0), 'slip');
-      } else {
-        bank += 1; clean++;
-        mv(res, dk, 'Bank', 1, 'clean day');
-      }
-      if (e && e.toTank)   { bank -= e.toTank;   tank += e.toTank;      // one for one
-                             mv(res, dk, 'Bank', -e.toTank, 'moved to the Tank');
-                             mv(res, dk, 'Tank', e.toTank, 'from the Bank'); }
-      if (e && e.fromTank) { tank -= e.fromTank; bank += e.fromTank;
-                             mv(res, dk, 'Tank', -e.fromTank, 'moved to the Bank');
-                             mv(res, dk, 'Bank', e.fromTank, 'from the Tank'); }
-      // The other half of the TH8NK <-> Tank moves - see the JUST8 walk.
-      var jE = get(dk, 'JUST8');
-      if (jE && jE.thankToTank) { tank += jE.thankToTank; mv(res, dk, 'Tank', jE.thankToTank, 'from the TH8NK'); }
-      if (e && e.tankToThank)   { tank -= e.tankToThank;  mv(res, dk, 'Tank', -e.tankToThank, 'moved to the TH8NK'); }
-      /* A lock is eight days from the day it was tapped. It moves no minutes,
-         so it is not a log line - it shows on the card. */
-      if (e && e.tankLock) lockUntil = addDays(d, TANK_LOCK_DAYS);
-
-      /* FIT's late-bedtime cost is paid straight out of the Tank, not the
-         Bank - a Tank freeze does not reach it, only the deliberate
-         withdrawal does. A shortfall here is FIT's miss, not STOP's: the
-         Tank cannot pay what was never in it, so whatever is there is taken
-         and the rest is simply short, written off the same way any other
-         reserve shortfall is. */
-      var fitCost = fitPtsOn(dk);
-      res.fitShort[dk] = false;
-      if (fitCost) {
-        var fE = get(dk, 'FIT');
-        if (tank >= fitCost) {
-          tank -= fitCost;
-          mv(res, dk, 'Tank', -fitCost, 'FIT - past midnight');
-        } else if (fE && fE.missUndone) {
-          /* The miss was undone by hand, so the Tank owes the rest rather
-             than having it written off. */
-          tank -= fitCost;
-          mv(res, dk, 'Tank', -fitCost, 'FIT - past midnight, Tank short (miss undone)');
-          res.fitShort[dk] = true;
-        } else {
-          if (tank > 0) mv(res, dk, 'Tank', -tank, 'FIT - past midnight, Tank came up short');
-          res.fitShort[dk] = true;
-          tank = 0;
-        }
-      }
-
-      /* Freezing the Bank does not stop a slip from costing what it costs -
-         it stops the Bank from being any help absorbing one, from the moment
-         it is tapped. Minutes already slipped by then are snapshotted and
-         left alone; only minutes added past that snapshot are treated as
-         though the Bank opened the day at zero, and are a miss no matter
-         what the real balance could have covered. */
-      var stopBankFreezeSnap = +(e && e.bankFreeze ? e.bankFreezeSnap : 0) || 0;
-      var curSlipMin = (e && e.slip) ? (e.min || 0) : 0;
-      var bankFreezeMiss = !!(e && e.bankFreeze) && curSlipMin > stopBankFreezeSnap;
-
-      var numericMiss = bank < 0;
-      var undone = !!(e && e.missUndone);
-      res.auto[dk] = numericMiss || bankFreezeMiss;
-      var miss = res.auto[dk] && !undone;
-      res.misses[dk] = miss;
-      if (numericMiss) res.short[dk] = -bank;      // how far under, before the write-off
-
-      /* The miss IS the penalty, so the debt is written off with it and the
-         next day opens at zero. Carrying a negative forward charged the same
-         slip again every morning until it had been earned back, which turned
-         one bad night into a fortnight of failures. A freeze-only miss has no
-         real debt behind it - the balance stands as it actually is. A miss
-         undone by hand keeps its debt too, carried into the next day, so it
-         can be fixed rather than forgiven. */
-      if (numericMiss && !undone) {
-        mv(res, dk, 'Bank', -bank, 'debt written off with the miss');
-        bank = 0;
-      }
-
-      /* The Tank used to empty on a miss or on two slips in a row. It no
-         longer does: a miss or a slip leaves it exactly as it was. */
-
-      res.closing[dk] = { bank: bank, tank: tank };
-      d = addDays(d, 1);
-    }
-    res.bank      = Math.round(bank * 100) / 100;
-    res.tank      = Math.round(tank * 100) / 100;
-    res.cleanRun  = clean;
-    res.lockUntil = (lockUntil && daysBetween(today, lockUntil) > 0) ? key(lockUntil) : null;
-    _stop = res;
-    return res;
-  }
-
-  function stopBank()  { return stop().bank; }
-  function stopTank()  { return stop().tank; }
-  function stopBankOn(dk) { var c = stop().closing[dk]; return c ? c.bank : 0; }
-  function stopTankOn(dk) { var c = stop().closing[dk]; return c ? c.tank : 0; }
-  function tankReached() { return stop().cleanRun >= TANK_UNLOCK_DAYS; }
-  function tankOpen()  { return tankReached() && !stop().lockUntil; }
-  function fitTankShortOn(dk) { return !!stop().fitShort[dk]; }
-
-  /* The TH8NK and the Tank are linked, one point for one minute, but each
-     keeps its own brakes. A frozen side - TH8NK or Tank - moves nothing in
-     or out for the rest of the day; a locked or not-yet-open Tank takes
-     minutes in but lets none out. Each move is stored on the entry of the side it
-     leaves - the TH8NK's on JUST8, the Tank's on STOP - which is where that
-     side's freeze lives. Shown on both cards so it is there from either. */
-  function tankThankRow(dk) {
-    var jE = get(dk, 'JUST8') || {}, sE = get(dk, 'STOP') || {};
-    var thankFrozen = !!jE.thankFreeze, tankFrozen = !!sE.tankFreeze, tankStop = tankFrozen || !tankOpen();
-    var anyFrozen = thankFrozen || tankFrozen;
-    var frozenLbl = thankFrozen ? 'TH8NK frozen' : 'Tank frozen';
-    return '<div class="field"><label>TH8NK &amp; Tank &middot; 1 pt = 1 min</label>' +
-      '<div class="btns">' +
-        '<div style="flex:1">' +
-          '<div class="dirlbl">TH8NK &rarr; Tank</div>' +
-          '<button class="btn ghost" data-act="thanktotank" style="width:100%' + (anyFrozen ? ';opacity:.4' : '') + '">' +
-            (anyFrozen ? frozenLbl : 'Move 1') + '</button>' +
-        '</div>' +
-        '<div style="flex:1">' +
-          '<div class="dirlbl">Tank &rarr; TH8NK</div>' +
-          '<button class="btn ghost" data-act="tanktothank" style="width:100%' + ((tankStop || thankFrozen) ? ';opacity:.4' : '') + '">' +
-            (anyFrozen ? frozenLbl : (!tankOpen() ? 'Tank shut' : 'Move 1')) + '</button>' +
-        '</div>' +
-      '</div></div>';
-  }
-  /* Makes the move if it is allowed. Returns the toast to show and whether
-     anything changed. */
-  function tankThankMove(a, dk) {
-    if (a === 'thanktotank') {
-      var tE = get(dk, 'STOP'), tJ = get(dk, 'JUST8');
-      if (tJ && tJ.thankFreeze) return { msg: 'TH8NK frozen for today' };
-      if (tE && tE.tankFreeze) return { msg: 'Tank frozen for today' };
-      if (thankOn(dk) < 1) return { msg: 'Nothing in the TH8NK' };
-      var jE = entry(dk, 'JUST8', true);
-      jE.thankToTank = (jE.thankToTank || 0) + 1;
-      return { ok: true, msg: '1 point into the Tank as 1 min' };
-    }
-    var sE = get(dk, 'STOP'), sJ = get(dk, 'JUST8');
-    if (sJ && sJ.thankFreeze) return { msg: 'TH8NK frozen for today' };
-    if (sE && sE.tankFreeze) return { msg: 'Tank frozen for today' };
-    if (!tankOpen()) {
-      return { msg: stop().lockUntil
-        ? 'Tank locked until ' + shortDate(stop().lockUntil)
-        : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days - you are at ' + stop().cleanRun };
-    }
-    if (stopTankOn(dk) < 1) return { msg: 'Nothing in the Tank' };
-    sE = entry(dk, 'STOP', true);
-    sE.tankToThank = (sE.tankToThank || 0) + 1;
-    return { ok: true, msg: '1 min into the TH8NK as 1 point' };
-  }
-
-  /* FIT's own miss, computed from the Tank walk rather than set by hand -
-     the same shape as STOP and JUST8's automatic misses just below. */
-  function refreshFitTankMisses() {
-    var s = stop().fitShort, changed = false;
-    Object.keys(s).forEach(function (dk) {
-      var e = get(dk, 'FIT');
-      if (!!(e && e.tankMiss) === !!s[dk]) return;
-      entry(dk, 'FIT', true).tankMiss = !!s[dk];
-      prune(dk, 'FIT');
-      changed = true;
-    });
-    if (changed) save();
-  }
-
-  /* Write the computed misses onto the days they happened, so the streak
-     breaks on the right date rather than only showing as a total. */
   /* An undo only covers the shortfall it was given for. Once the numbers no
      longer say miss - the balance was fixed - it is dropped, so a fresh
      shortfall later that day is a miss again until it too is undone. */
   function clearStaleUndos() {
-    var sa = stop().auto, ja = j8().auto, fs = stop().fitShort, changed = false;
+    var ja = j8().auto, changed = false;
     Object.keys(state.days).forEach(function (dk) {
-      [['STOP', sa], ['JUST8', ja], ['FIT', fs]].forEach(function (p) {
-        var e = get(dk, p[0]);
-        if (e && e.missUndone && !p[1][dk]) { delete e.missUndone; prune(dk, p[0]); changed = true; }
-      });
+      var e = get(dk, 'JUST8');
+      if (e && e.missUndone && !ja[dk]) { delete e.missUndone; prune(dk, 'JUST8'); changed = true; }
     });
-    if (changed) { _j8 = null; _stop = null; save(); }
-  }
-  function refreshStopMisses() {
-    var m = stop().misses, changed = false;
-    Object.keys(m).forEach(function (dk) {
-      var e = get(dk, 'STOP');
-      if (m[dk] === !!(e && e.bankMiss)) return;
-      entry(dk, 'STOP', true).bankMiss = m[dk];
-      prune(dk, 'STOP');
-      changed = true;
-    });
-    if (changed) save();
+    if (changed) { _j8 = null; save(); }
   }
 
   /* ---------------- render ---------------- */
@@ -1481,14 +1276,13 @@
     return (r % 1 === 0) ? String(r) : String(r);
   }
 
-  /* The two reserves are kept to the cent but never shown past a ceiling.
+  /* The TH8NK is kept to the cent but never shown past a ceiling.
      Knowing there is "at least 18" is enough to act on; knowing there is 300
      is an invitation to spend it. Every move still shows in the log, so the
      real figure can be worked out - it just cannot be read off the screen. */
-  var THANK_VEIL = 8, TANK_VEIL = 8;
+  var THANK_VEIL = 18;
   function veil(n, cap) { return n > cap ? cap + '+' : fmt(n); }
   function fmtThank() { return veil(thank(), THANK_VEIL); }
-  function fmtTank()  { return veil(stopTank(), TANK_VEIL); }
 
   /* Three states, so a glance down the list is readable:
        ok    - clean, or done as intended
@@ -1502,7 +1296,7 @@
 
     switch (id) {
       case 'H2Only':   return e.logged ? 'ok' : '';
-      case 'STOP':     return e.slip ? 'warn' : (e.logged ? 'ok' : '');
+      case 'STOP':     return e.logged ? 'ok' : '';   // words inside the week's eight keep the day green
       case 'FIT':      return fitOver(e.items).spent ? 'warn' : (e.logged ? 'ok' : '');
       case 'JUST8':    return (e.eatStart && e.eatEnd) ? 'ok' : (e.eatStart || e.cups || e.cupS ? 'warn' : '');
       case 'WERKOUTS': return e.done ? 'ok' : ((e.logged && werkMin(e) < WERK_FULL) ? 'warn' : '');   // short of a full one is amber until finished or marked missed
@@ -1565,9 +1359,7 @@
 
   function render() {
     clearStaleUndos();
-    refreshStopMisses();
     refreshJ8Misses();
-    refreshFitTankMisses();
     var dk = key(viewing);
 
     document.getElementById('dayBig').textContent = labelFor(viewing);
@@ -1777,11 +1569,11 @@
       ? '<button class="btn danger" data-act="miss" style="box-shadow:inset 0 0 0 2px var(--danger)">Missed &mdash; undo</button>'
       : '<button class="btn danger" data-act="miss">Miss</button>';
   }
-  /* The miss the numbers decide, with a way to take it back before the day
-     is finalized. Undoing keeps the shortfall on the balance to be fixed. */
+  /* The miss the numbers decide - only JUST8's 8ANK below zero now - with a
+     way to take it back before the day is finalized. Undoing keeps the
+     shortfall on the balance to be fixed. */
   function autoMissBtn(dk, id, e) {
-    var auto = id === 'STOP' ? stop().auto[dk] : id === 'JUST8' ? j8().auto[dk] : fitTankShortOn(dk);
-    if (!auto) return '';
+    if (!j8().auto[dk]) return '';
     return '<div class="btns" style="margin-bottom:8px">' + (e.missUndone
       ? '<button class="btn ghost" data-act="automiss">Miss undone &mdash; shortfall still owed &middot; put it back</button>'
       : '<button class="btn danger" data-act="automiss">Missed by the numbers &mdash; undo</button>') + '</div>';
@@ -1891,88 +1683,23 @@
     }
 
     else if (id === 'STOP') {
-      var lockArmed = (_armLock && Date.now() - _armLock < 8000);
-      var freezeArmed = (_armFreeze && Date.now() - _armFreeze < 8000);
-      var frozen = !!e.tankFreeze;
-      var bankFreezeArmed = (_armStopBankFreeze && Date.now() - _armStopBankFreeze < 8000);
-      var bankFrozen = !!e.bankFreeze;
-      var isToday = (dk === key(today));
+      var wUsed = wordsUsedInWeek(dk);
       html = head('STOP', when) +
-        /* Clean days are counted separately from the streak and cannot touch
-           it. A slip the Bank absorbs resets this to zero while the streak
-           carries on untouched - only a Bank below zero breaks that. */
-        '<div class="note">Bank: <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank: <b>' + fmtTank() + ' min</b>' +
-          ' &nbsp;&middot;&nbsp; <b>' + stop().cleanRun + '</b> clean day' + (stop().cleanRun === 1 ? '' : 's') + '</div>' +
-        /* The Bank's own brake, separate from the Tank's. It does not stop a
-           slip from costing what it costs - it just stops the Bank from
-           being able to absorb one: frozen, any slip the rest of today is a
-           miss, the same as an empty balance. Offered only on today's card,
-           and wears off on its own at midnight. */
-        (isToday
-          ? (bankFrozen
-              ? '<div class="note" style="margin:4px 0 10px">Bank frozen for the rest of today - any slip now is a miss.</div>'
-              : '<div class="btns" style="margin:4px 0 10px"><button class="btn ' + (bankFreezeArmed ? 'danger' : 'ghost') + '" data-act="stopbankfreeze" style="flex:1">' +
-                (bankFreezeArmed
-                  ? 'Tap again to freeze the Bank for the rest of today'
-                  : 'Freeze the Bank for today') + '</button></div>')
-          : '') +
-        // A slip is not a miss - the bank absorbs it. Calling it one was wrong.
-        '<div class="btns" style="margin-bottom:14px">' +
-          '<button class="btn ' + (!e.slip ? 'go' : 'ghost') + '" data-act="clean">Good</button>' +
-          '<button class="btn ' + (e.slip ? 'danger' : 'ghost') + '" data-act="slip">Slip</button>' +
-        '</div>' +
-        (e.slip ? '<div class="field"><label>Minutes it cost</label>' +
-          '<div class="stepper">' +
-            '<button data-act="smin-">&minus;</button>' +
-            '<div class="val" id="sminVal">' + (e.min || 0) + '</div>' +
-            '<button data-act="smin+">+</button>' +
-          '</div></div>' : '') +
-        /* One-way. Minutes leave the bank and do not come back, so this is a
-           deliberate button rather than a stepper that can drift up and down. */
-        /* The threshold is named, not just the gap to it. "21 more clean days"
-           on its own never said what it was counting towards. */
-        '<div class="field"><label>' +
-          (tankOpen()
-            ? 'Tank open'
-            : stop().lockUntil
-              ? 'Tank locked until ' + shortDate(stop().lockUntil)
-              : 'Tank opens at ' + TANK_UNLOCK_DAYS + ' clean days') + '</label>' +
-          /* Nothing comes back from the Tank to the Bank any more - its only
-             way out is the TH8NK row below. Old withdrawals stay on record. */
-          '<div class="btns">' +
-            '<div style="flex:1">' +
-              '<div class="dirlbl">Bank &rarr; Tank</div>' +
-              '<button class="btn ghost" data-act="totank" style="width:100%' + (frozen ? ';opacity:.4' : '') + '">' + (frozen ? 'Tank frozen' : 'Put 1 in') + '</button>' +
-            '</div>' +
+        /* Built the same way as the hairs: one button, counted across the
+           week, and every tap final. The difference is what happens once the
+           eight are gone - the next one is the miss, set on the tap so it can
+           still be undone with Miss until the day is finalized. */
+        '<div class="field"><label>Words &mdash; ' + WORDS_PER_WEEK + ' a week, resets Sunday</label>' +
+          '<div class="btns" style="margin-top:0">' +
+            (wUsed < WORDS_PER_WEEK
+              ? '<button class="btn ghost" data-act="word">Used one &mdash; ' + wUsed + ' of ' + WORDS_PER_WEEK + ' used</button>'
+              : '<button class="btn danger" data-act="word">One more &mdash; that&rsquo;s a miss</button>') +
           '</div>' +
-          /* Offered only while the Tank is open, and armed like the other
-             one-way acts: the first tap says what it will do, the second does
-             it. A slip of the thumb here would cost eight days. */
-          (tankOpen()
-            ? '<div class="btns" style="margin-top:8px"><button class="btn ' + (lockArmed ? 'danger' : 'ghost') + '" data-act="tanklock" style="flex:1">' +
-              (lockArmed
-                ? 'Tap again to lock it until ' + shortDate(key(addDays(today, TANK_LOCK_DAYS))) + ' &mdash; no way back'
-                : 'Lock the Tank ' + TANK_LOCK_DAYS + ' more days') + '</button></div>'
+          ((e.words || 0)
+            ? '<div class="note" style="margin:8px 0 0"><b>' + e.words + '</b> used today.</div>'
             : '') +
-          /* A same-day brake, not the eight-day lock: withdrawals only, so
-             deposits still work, and it wears off at midnight on its own.
-             Offered only on today's card - freezing a past day means nothing.
-             Armed the same way as the lock, since it is just as one-way for
-             the rest of today. Not gated on the Tank being open: marking a
-             slip closes the Tank for the day (it costs the clean-day count),
-             and that is exactly the moment this needs to still be reachable -
-             a brake that vanishes the instant it is needed is no brake. */
-          (isToday
-            ? (frozen
-                ? '<div class="note" style="margin-top:8px">Tank frozen for the rest of today.</div>'
-                : '<div class="btns" style="margin-top:8px"><button class="btn ' + (freezeArmed ? 'danger' : 'ghost') + '" data-act="tankfreeze" style="flex:1">' +
-                  (freezeArmed
-                    ? 'Tap again to freeze the Tank for the rest of today'
-                    : 'Freeze the Tank for today') + '</button></div>')
-            : '') +
+          '<div class="note" style="margin:8px 0 0">A week with none used pays <b>' + WORDS_CLEAN_PTS + '</b> into the 8ANK.</div>' +
         '</div>' +
-        tankThankRow(dk) +
-        autoMissBtn(dk, 'STOP', e) +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
@@ -1981,15 +1708,13 @@
       var tally = fitOver(items);
       var mins = bedMinutesOver(e.bed);
 
-      var fitShort = fitTankShortOn(dk);
       var bedLine;
       if (!e.bed) bedLine = 'Not stamped yet.';
       else if (mins <= 0) bedLine = 'Phone down at <b>' + e.bed + '</b> &mdash; nothing counted.';
       else bedLine = 'Phone down at <b>' + e.bed + '</b> &mdash; ' +
              (mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' : mins + ' min') +
              ' past 12, so <b>M-' + bedGrade(mins) + '</b>' +
-             (bedPoints(mins) ? ' and <b>' + bedPoints(mins) + ' pt</b> from the Tank' +
-               (fitShort ? ' &mdash; the Tank came up short, so this is a miss' : '') : '') + '.';
+             (bedPoints(mins) ? ' and <b>' + bedPoints(mins) + ' pt</b> from the ' + (j8().open[dk] ? 'TH8NK' : '8ANK') : '') + '.';
 
       html = head('FIT', when) +
         '<div class="field"><label>Phone down for the night</label>' +
@@ -2015,7 +1740,7 @@
           /* The sizes, said where they are used. Not a rule the app enforces -
              the letters are tapped by hand - but the agreement the taps rest
              on, kept in view so it cannot drift. */
-          '<div class="note" style="margin:8px 0 0">3 min = <b>u</b> &nbsp;&middot;&nbsp; 1 hr = <b>U</b></div>' +
+          '<div class="note" style="margin:8px 0 0">8 min = <b>u</b> &nbsp;&middot;&nbsp; 1 hr = <b>U</b></div>' +
           (dk === key(today)
             ? (e.tFreeze
                 ? '<div class="note" style="margin:8px 0 0">T frozen for the rest of today &mdash; any more T is a miss.</div>'
@@ -2046,7 +1771,6 @@
             ? '<div class="note" style="margin:8px 0 0"><b>' + e.hairs + '</b> used today.</div>'
             : '') +
         '</div>' +
-        autoMissBtn(dk, 'FIT', e) +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
@@ -2062,10 +1786,7 @@
            A reserve you cannot touch is not information, it is temptation. */
         '<div class="note">8ANK: <b>' + fmt(bank8()) + '</b>' +
           (e.trav ? ' &nbsp;&middot;&nbsp; TH8NK: <b>' + fmtThank() + '</b>' : '') +
-          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e)) + ' pt</b>' +
-          (key(today) >= EARN_TO_8ANK
-            ? ' &nbsp;&middot;&nbsp; green run <b>' + j8().greenRun + ' of ' + GREEN_RUN + '</b>'
-            : '') + '</div>' +
+          ' &nbsp;&middot;&nbsp; costs for the day <b>' + fmt(j8DayCost(e, dk)) + ' pt</b></div>' +
         (bank8() < 0
           ? '<div class="warnbox">The 8ANK is <b>' + fmt(bank8()) + '</b>. Nothing is pulled for you &mdash; ' +
             'pull from the TH8NK to cover it, up to ' + PULL_MAX_PER_DAY + ' out a day, or the day is a miss.</div>'
@@ -2203,16 +1924,15 @@
             '</div>' +
             '<div style="flex:1">' +
               '<div class="dirlbl">8ANK &rarr; TH8NK</div>' +
-              '<button class="btn ghost" data-act="dep3" style="width:100%' + (thankFrozen ? ';opacity:.4' : '') + '">' + (thankFrozen ? 'Frozen today' : 'Deposit 3 &rarr; +4') + '</button>' +
+              '<button class="btn ghost" data-act="dep3" style="width:100%">Deposit 3 &rarr; +4</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
-        tankThankRow(dk) +
         '<div class="field">' +
           /* A same-day brake on the TH8NK: it stops the TH8NK paying for the
-             rest of today and stops every transfer in or out of it. It wears
-             off on its own at midnight. Offered only on today's card -
-             freezing a past day means nothing. */
+             rest of today and stops any pull out of it. Deposits still go in.
+             It wears off on its own at midnight. Offered only on today's
+             card - freezing a past day means nothing. */
           (isTodayJ8
             ? (thankFrozen
                 ? '<div class="note" style="margin-top:8px">TH8NK frozen for the rest of today.</div>'
@@ -2339,6 +2059,8 @@
           /* Done on H means the day held. It already reads as a hit on
              opening, so pressing Done should leave a tick rather than nothing. */
           if (id === 'H2Only' && !e.broke && !e.miss) e.logged = true;
+          // STOP the same: the words are counted above, and Done says the day held.
+          if (id === 'STOP' && !e.miss) e.logged = true;
           commit(false); closeOv('ovSheet'); return;
         }
         if (a === 'automiss') {
@@ -2369,13 +2091,9 @@
         }
         if (a === 'held')  { e.broke = false; e.logged = true; commit(true); return; }
         if (a === 'broke') { e.broke = true;  e.logged = true; commit(true); return; }
-        if (a === 'clean') { e.slip = false; e.min = 0; e.logged = true; commit(true); return; }
-        if (a === 'slip')  { e.slip = true;  e.logged = true; commit(true); return; }
 
         if (a === 'min-')  { e.min = Math.max(0, werkMin(e) - 5);          setWerk(e); commit(true); return; }
         if (a === 'min+')  { e.min = Math.min(WERK_FULL, werkMin(e) + 5); setWerk(e); commit(true); return; }
-        if (a === 'smin-') { e.min = Math.max(0, (e.min || 0) - 1); commit(true); return; }
-        if (a === 'smin+') { e.min = (e.min || 0) + 1; commit(true); return; }
         /* One way, deliberately. An allowance you can hand back to yourself
            after the fact is not an allowance, and one hair is small enough
            that a mis-tap costs almost nothing - which is exactly why it can
@@ -2388,6 +2106,19 @@
           e.tFreeze = 1;
           commit(true);
           toast('T frozen for the rest of today'); return;
+        }
+        /* Final like the hairs. Past the eight it is the miss, set here on
+           the tap rather than recomputed, so undoing it with Miss sticks. */
+        if (a === 'word') {
+          var wasUsed = wordsUsedInWeek(dk);
+          e.words = (e.words || 0) + 1;
+          e.logged = true;
+          if (wasUsed >= WORDS_PER_WEEK) { e.miss = true; e.done = false; }
+          commit(true);
+          var wu = wasUsed + 1;
+          toast(wu > WORDS_PER_WEEK ? 'Past the ' + WORDS_PER_WEEK + ' - STOP missed'
+                                    : wu + ' of ' + WORDS_PER_WEEK + ' used this week');
+          return;
         }
         if (a === 'hair') {
           if (hairsLeft(dk) <= 0) { toast('None left this week - put it on TH'); return; }
@@ -2415,42 +2146,6 @@
           return;
         }
 
-        if (a === 'thanktotank' || a === 'tanktothank') {
-          var mvr = tankThankMove(a, dk);
-          if (mvr.ok) commit(true);
-          toast(mvr.msg); return;
-        }
-        if (a === 'totank') {
-          if (e.tankFreeze) { toast('Tank frozen for today'); return; }
-          if (stopBankOn(dk) < 1) { toast('Nothing in the Bank to move'); return; }
-          e.toTank = (e.toTank || 0) + 1;
-          e.logged = true; commit(true); toast('1 min into the Tank'); return;
-        }
-        if (a === 'tanklock') {
-          if (!tankOpen()) { toast('The Tank is not open'); return; }
-          if (!(_armLock && Date.now() - _armLock < 8000)) { _armLock = Date.now(); openSheet(dk, id); return; }
-          _armLock = 0;
-          e.tankLock = 1;
-          e.logged = true; commit(true);
-          toast('Tank locked until ' + shortDate(stop().lockUntil)); return;
-        }
-        if (a === 'tankfreeze') {
-          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
-          if (!(_armFreeze && Date.now() - _armFreeze < 8000)) { _armFreeze = Date.now(); openSheet(dk, id); return; }
-          _armFreeze = 0;
-          e.tankFreeze = 1;
-          e.logged = true; commit(true);
-          toast('Tank frozen for the rest of today'); return;
-        }
-        if (a === 'stopbankfreeze') {
-          if (dk !== key(today)) { toast('Only today can be frozen'); return; }
-          if (!(_armStopBankFreeze && Date.now() - _armStopBankFreeze < 8000)) { _armStopBankFreeze = Date.now(); openSheet(dk, id); return; }
-          _armStopBankFreeze = 0;
-          e.bankFreezeSnap = e.slip ? (e.min || 0) : 0;   // minutes already slipped stay penalty-free
-          e.bankFreeze = 1;
-          e.logged = true; commit(true);
-          toast('Bank frozen for the rest of today'); return;
-        }
         /* The by-hand time picker. Open it on the current value, or the clock
            if there is none; the confirm button says what it is about to do. */
         if (a === 'tpick') {
@@ -2504,7 +2199,7 @@
         }
         if (a === 'tclear')  { e.travPick = ''; e.trav = ''; e.travWho = ''; e.travWhat = ''; commit(true); return; }
 
-        if ((a === 'thank3' || a === 'dep3') && e.thankFreeze) { toast('TH8NK frozen for today'); return; }
+        if (a === 'thank3' && e.thankFreeze) { toast('TH8NK frozen for today - nothing comes out'); return; }
         if (a === 'thank3') {
           if ((e.thankPull || 0) >= PULL_MAX_PER_DAY) {
             toast('That is the day\'s limit - ' + PULL_MAX_PER_DAY + ' out, ' +
@@ -2523,7 +2218,7 @@
           if (dk !== key(today)) { toast('Only today can be frozen'); return; }
           if (!(_armThankFreeze && Date.now() - _armThankFreeze < 8000)) { _armThankFreeze = Date.now(); openSheet(dk, id); return; }
           _armThankFreeze = 0;
-          e.thankFreezeSnap = j8DayCost(e);   // what has already landed on the TH8NK stays there
+          e.thankFreezeSnap = j8DayCost(e, dk);   // what has already landed on the TH8NK stays there
           e.thankFreeze = 1;
           if (!e.trav) e.travPick = '';       // an unconfirmed pick is dropped: nothing was spent, and it can no longer open
           e.logged = true; commit(true);
@@ -2631,6 +2326,7 @@
         : { done: true, min: 31, types: (rnd() < 0.5 ? ['W', 'K'] : ['R', 'O']) };
 
       day.STOP = { logged: true };
+      if (rnd() < 0.2) day.STOP.words = 1;
       day.FIT  = { logged: true };
       if (rnd() < 0.25) day.FIT.items = { W: 'u' };
 
@@ -2652,7 +2348,7 @@
        this much history there is room for streaks to build, break and rebuild,
        which is the thing worth looking at. */
     if (days['2026-06-11']) { days['2026-06-11'].H2Only = { broke: true, logged: true }; }
-    if (days['2026-06-18']) { days['2026-06-18'].STOP = { slip: true, min: 12, logged: true }; }
+    if (days['2026-06-18']) { days['2026-06-18'].STOP = { words: 3, logged: true }; }
     if (days['2026-06-27']) { days['2026-06-27'].NOTE = { miss: true }; }
     if (days['2026-07-04']) { days['2026-07-04'].JUST8.trav = 'H'; days['2026-07-04'].JUST8.travPick = 'H';
                               days['2026-07-04'].JUST8.travWhat = 'Fourth of July'; days['2026-07-04'].JUST8.cupS = 1.5; }
@@ -2663,7 +2359,7 @@
                               days['2026-07-30'].JUST8.travWho = 'with Kevin, Denver'; days['2026-07-30'].JUST8.cups = 3; }
     if (days['2026-08-09']) { days['2026-08-09'].BED = { miss: true }; }
     if (days['2026-08-14']) { days['2026-08-14'].H2Only = { broke: true, logged: true }; }
-    if (days['2026-08-19']) { days['2026-08-19'].STOP = { slip: true, min: 4, logged: true }; }
+    if (days['2026-08-19']) { days['2026-08-19'].STOP = { words: 9, miss: true, logged: true }; }
     if (days['2026-08-22']) { days['2026-08-22'].JUST8.trav = 'T'; days['2026-08-22'].JUST8.travPick = 'T';
                               days['2026-08-22'].JUST8.travWho = 'with the family, St George'; days['2026-08-22'].JUST8.cupS = 2; }
     if (days['2026-08-25']) { days['2026-08-25'].FIT = { logged: true, items: { M: 'u', F: 'U' }, miss: true }; }
@@ -2672,17 +2368,17 @@
     /* A reseed clears the finalised days and the fixed start dates with it -
        the sandbox is for practising both, and a practice day locked forever
        would only be in the way. */
-    state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START,
+    state = { starts: starts, days: days, demo: true, demoSeed: DEMO_START, stopReset: true,
               rakList: state.rakList, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
-    _j8 = null; _stop = null;
+    _j8 = null;
     save(); render();
     toast('Sample data loaded');
   }
 
   function wipeAll() {
-    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {}, rakList: state.rakList };   // shortlist survives a wipe
+    state = { starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {}, stopReset: true, rakList: state.rakList };   // shortlist survives a wipe
     HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
-    _j8 = null; _stop = null;
+    _j8 = null;
     save(); render();
     toast('Wiped clean');
   }
@@ -2866,11 +2562,11 @@
     closeOv('ovMenu'); _armStart = null; openStarts();
   });
 
-  /* ---------------- point and minute log ----------------
-     Built from the two walks that produce the balances themselves, so the
-     ledger and the totals cannot disagree. Nothing here is stored: it is the
-     same arithmetic, shown a line at a time instead of as a closing number. */
-  var LOG_ACCTS = ['8ANK', 'TH8NK', 'Bank', 'Tank'];
+  /* ---------------- point log ----------------
+     Built from the walk that produces the balances itself, so the ledger and
+     the totals cannot disagree. Nothing here is stored: it is the same
+     arithmetic, shown a line at a time instead of as a closing number. */
+  var LOG_ACCTS = ['8ANK', 'TH8NK'];
 
   function openLog() {
     var days = {};
@@ -2879,7 +2575,7 @@
         (days[dk] || (days[dk] = [])).push.apply(days[dk], src[dk]);
       });
     }
-    add(j8().log); add(stop().log);
+    add(j8().log);
 
     /* A day whose only entry is its note still belongs here - the note is the
        reason to look a year later, and points are not the only record. */
@@ -2916,7 +2612,7 @@
               '<div class="lgntext">' + escText(note) + '</div>'
             : '') +
           rows.map(function (r) {
-            var unit = (r.acct === 'Bank' || r.acct === 'Tank') ? ' min' : ' pt';
+            var unit = ' pt';
             return '<div class="lgrow"><span class="lga">' + r.acct + '</span>' +
               '<span class="lgw">' + r.why + '</span>' +
               '<span class="lgv ' + (r.amt > 0 ? 'up' : 'dn') + '">' +
@@ -2926,9 +2622,9 @@
       '</div>';
     }).join('');
 
-    sheetEl.innerHTML = headX('Point and minute log', 'A day at a time &mdash; tap one to open it') +
+    sheetEl.innerHTML = headX('Point log', 'A day at a time &mdash; tap one to open it') +
       '<div class="note">Now &mdash; 8ANK <b>' + fmt(bank8()) + '</b> &nbsp;&middot;&nbsp; TH8NK <b>' + fmtThank() +
-        '</b> &nbsp;&middot;&nbsp; Bank <b>' + fmt(stopBank()) + ' min</b> &nbsp;&middot;&nbsp; Tank <b>' + fmtTank() + ' min</b></div>' +
+        '</b></div>' +
       (body || '<div class="note">Nothing has moved yet.</div>') +
       (keys.length > shown.length
         ? '<div class="note">Showing the most recent ' + shown.length + ' days with movement, of ' + keys.length + '.</div>'
@@ -3168,8 +2864,8 @@
      one's rulings. The PIN is the exception: it is not a record of anything.
 
      What is worth carrying is shown ONCE, on the closing numbers page, and
-     only after the wipe has already happened. The exact 8ANK, TH8NK, Bank and
-     Tank live behind a veil the rest of the time; the only way to read them
+     only after the wipe has already happened. The exact TH8NK lives behind a
+     veil the rest of the time; the only way to read it
      is to give up the history they came from. That is what stops the page
      being a way to peek. The page will not close until Copy has been tapped. */
   var _armWipe = 0;
@@ -3181,8 +2877,6 @@
     o.push('BALANCES');
     o.push('  8ANK   ' + fmt(bank8()));
     o.push('  TH8NK  ' + fmt(thank()));
-    o.push('  Bank   ' + fmt(stopBank()) + ' min');
-    o.push('  Tank   ' + fmt(stopTank()) + ' min');
     o.push('');
     o.push('STREAKS - type these into Start dates and history on the new copy');
     _segs = {};
@@ -3205,7 +2899,7 @@
       '<div class="note">This clears <b>' + n + ' day' + (n === 1 ? '' : 's') +
       '</b> of entries and everything alongside them: the notes, the finalized ' +
       'days, the fixed start dates, and any balances set by hand.<br><br>' +
-      'The moment it is done you are shown the <b>closing numbers</b> - the four ' +
+      'The moment it is done you are shown the <b>closing numbers</b> - the two ' +
       'balances and each streak - once, to copy and type into the new copy. ' +
       'Copy the <b>Notes</b> page first if you want the notes.<br><br>' +
       '<b>Your PIN is kept.</b></div>' +
@@ -3227,9 +2921,9 @@
          way to begin again is a new install from the link, not this one. The
          closing numbers are the one thing kept, behind the PIN, so they can
          still be copied from here until the app is deleted. */
-      state = { wiped: true, closing: closing, starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
+      state = { wiped: true, closing: closing, stopReset: true, starts: {}, days: {}, finals: {}, startsLocked: {}, dayNotes: {}, prior: {} };
       HABITS.forEach(function (h) { state.starts[h.id] = DEFAULT_STARTS[h.id]; });
-      _j8 = null; _stop = null;
+      _j8 = null;
       save(); closeOv('ovSheet'); closeOv('ovMenu');
       showDead();
     });
@@ -3243,14 +2937,12 @@
   document.getElementById('deadCopy').addEventListener('click', function () { copyText('deadText'); });
 
   /* ---------------- balances by hand ----------------
-     The way back after a wipe: the four numbers as they stood at the start of
+     The way back after a wipe: the two numbers as they stood at the start of
      a named day, typed in from the closing numbers page. Reached from the
      Start dates and history sheet, since the two are done together. */
   var RESTORE_FIELDS = [
     { k: 'bank8',    label: '8ANK &middot; JUST8',      get: bank8 },
-    { k: 'thank',    label: 'TH8NK &middot; JUST8',     get: thank,    veil: THANK_VEIL },
-    { k: 'stopBank', label: 'Bank &middot; STOP (min)', get: stopBank },
-    { k: 'stopTank', label: 'Tank &middot; STOP (min)', get: stopTank, veil: TANK_VEIL }
+    { k: 'thank',    label: 'TH8NK &middot; JUST8',     get: thank,    veil: THANK_VEIL }
   ];
 
   /* Balances lock the same way a start date does, and for the same reason. A
@@ -3284,10 +2976,10 @@
 
     var armed = (_armAnc && Date.now() - _armAnc < 8000);
     sheetEl.innerHTML = head('Set the balances', 'After a wipe, or on a new phone') +
-      '<div class="note">Enter the four numbers <b>as they stood at the start of the ' +
+      '<div class="note">Enter the two numbers <b>as they stood at the start of the ' +
       'day below</b>. Everything logged from that day on is counted on top as ' +
       'normal.<br><br>This changes no day you have already tapped, and it shows up ' +
-      'in the point and minute log so the numbers never appear from nowhere.</div>' +
+      'in the point log so the numbers never appear from nowhere.</div>' +
       '<div class="field"><label>Balances are from the start of</label>' +
         '<input type="text" id="ancDate" value="' + escAttr(a.date || key(today)) +
         '" placeholder="YYYY-MM-DD" autocomplete="off"></div>' +
@@ -3340,11 +3032,11 @@
       });
       if (bad) return { bad: bad + ' - numbers only' };
 
-      /* The day has to be one both walks actually reach, or the correction
+      /* The day has to be one the walk actually reaches, or the correction
          would be written against a day that never comes round and would simply
          never apply. */
       var op = openingWithoutAnchor(d);
-      if (!op.hasJ8 || !op.hasStop) return { bad: 'the date - it is before JUST8 or STOP began' };
+      if (!op.hasJ8) return { bad: 'the date - it is before JUST8 began' };
 
       /* Stored as the difference, not as the figure. A figure would have to
          replace everything before it to hold, which is what stopped earlier
@@ -3352,9 +3044,7 @@
          day go on counting around it. Re-entered later, it simply recomputes. */
       next.adj = {
         bank8:    next.bank8    - op.bank8,
-        thank:    next.thank    - op.thank,
-        stopBank: next.stopBank - op.stopBank,
-        stopTank: next.stopTank - op.stopTank
+        thank:    next.thank    - op.thank
       };
 
       /* The figure is "as it stood at the start of the day", and whatever is
@@ -3365,13 +3055,11 @@
          leave a miss that a one-way transfer cannot undo. Refused here, with
          the number that would work, rather than saved and discovered. */
       var keep = state.anchor;
-      state.anchor = next; _j8 = null; _stop = null;
-      var shortJ = j8().misses[d], shortS = stop().misses[d];
+      state.anchor = next; _j8 = null;
+      var shortJ = j8().misses[d];
       var needJ = shortJ ? next.bank8 - j8().closing[d].bank : 0;
-      var needS = shortS ? next.stopBank + stop().short[d] : 0;
-      state.anchor = keep; _j8 = null; _stop = null;
+      state.anchor = keep; _j8 = null;
       if (shortJ) return { bad: 'the 8ANK - with what is already logged on ' + shortDate(d) + ' it ends below zero and the day is a miss. At least ' + fmt(needJ) + ' would hold' };
-      if (shortS) return { bad: 'the Bank - with what is already logged on ' + shortDate(d) + ' it ends below zero and the day is a miss. At least ' + fmt(needS) + ' would hold' };
       return { anchor: next };
     }
 
@@ -3437,16 +3125,38 @@
     if (!a || a.adj) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(a.date || '') || isNaN(parse(a.date).getTime())) return;
     var op = openingWithoutAnchor(a.date);
-    if (!op.hasJ8 || !op.hasStop) return;
+    if (!op.hasJ8) return;
     a.adj = {
       bank8:    (+a.bank8    || 0) - op.bank8,
-      thank:    (+a.thank    || 0) - op.thank,
-      stopBank: (+a.stopBank || 0) - op.stopBank,
-      stopTank: (+a.stopTank || 0) - op.stopTank
+      thank:    (+a.thank    || 0) - op.thank
     };
     save();
   }
   migrateAnchor();
+
+  /* STOP changed meaning entirely at NEW_RULES - it is the weekly words now -
+     so nothing it recorded before carries across. Once, on the first open:
+     every old STOP entry goes, along with what was carried in by hand, and
+     STOP starts again from NEW_RULES. No other habit is touched, except that
+     a Tank-to-TH8NK move, stored on STOP's side, is copied onto that day's
+     JUST8 entry so the TH8NK keeps what it was given. A wiped copy is left
+     as it is. */
+  function migrateStop() {
+    if (state.stopReset || state.wiped) return;
+    Object.keys(state.days).forEach(function (dk) {
+      var s = state.days[dk].STOP;
+      if (s) {
+        if (s.tankToThank) entry(dk, 'JUST8', true).tankToThank = s.tankToThank;
+        delete state.days[dk].STOP;
+        if (!Object.keys(state.days[dk]).length) delete state.days[dk];
+      }
+    });
+    state.starts.STOP = NEW_RULES;
+    if (state.prior) delete state.prior.STOP;
+    state.stopReset = true;
+    save();
+  }
+  migrateStop();
 
   function bootApp() {
     if (state.wiped && !SANDBOX) { showDead(); return; }
