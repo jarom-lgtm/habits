@@ -426,7 +426,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v91';
+  var APP_VERSION = 'v92';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -750,6 +750,16 @@
      one after them is a miss. A whole week with none used pays into the
      8ANK - see the JUST8 walk. */
   var WORDS_PER_WEEK = 8, WORDS_CLEAN_PTS = 3;
+  // Every word in the calendar month that starts on mo.
+  function wordsUsedInMonth(mo) {
+    var n = 0, d = new Date(mo.getFullYear(), mo.getMonth(), 1);
+    while (d.getMonth() === mo.getMonth()) {
+      var day = state.days[key(d)];
+      if (day && day.STOP && day.STOP.words) n += day.STOP.words;
+      d = addDays(d, 1);
+    }
+    return n;
+  }
   function wordsUsedInWeek(dk) {
     var s = weekStart(parse(dk)), n = 0;
     for (var i = 0; i < 7; i++) {
@@ -904,12 +914,11 @@
   /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
      the three can never drift apart.
 
-     Earning, from NEW_RULES2: 3 into the 8ANK every Sunday and 8 on the 1st
-     of every month, on top of whatever is already there; 1 for each
-     all-green day; 1 more on Sunday (Zunday) when all seven days of the week
-     just gone were green; and 3 on a Sunday for a whole STOP week just gone
-     with no words used. Nothing else pays. Days before keep the rules they
-     were earned under - NEW_RULES itself paid its Sunday 8.
+     Earning, from NEW_RULES3: 1 into the 8ANK every day and 1 more on Sunday
+     for Zunday, 8 on the 1st of every month, 3 on Sunday for a whole Sun-Sat
+     week of all-green days, and 3 on the 1st for a calendar month with no
+     STOP words. Nothing else pays. Days before keep the rules they were
+     earned under - see the walk for each cutover.
 
      Deposits: 3 out of the 8ANK become 4 in the TH8NK - a point of interest for
      putting it away. It still only ever comes back at the one-third rate, so
@@ -937,11 +946,22 @@
      each month, with Zunday back as a point for a whole green week. */
   var NEW_RULES2 = '2026-10-19';
 
+  /* The day earning went back to a point a day and Zunday, with the
+     all-green week and the clean STOP month as the things to earn. */
+  var NEW_RULES3 = '2026-10-25';
+
   /* Between EARN_TO_8ANK and NEW_RULES, eight all-green days in a row paid 3
      into the 8ANK and the count started again. Kept only for those days. */
   var GREEN_RUN = 8, GREEN_RUN_PTS = 3;
   var WEEKLY_PTS = 8;                            // each Sunday, NEW_RULES to NEW_RULES2 only
-  var SUNDAY_PTS = 3, MONTHLY_PTS = 8;
+  var SUNDAY_PTS = 3;                            // each Sunday, NEW_RULES2 to NEW_RULES3 only
+  var MONTHLY_PTS = 8, GREEN_WEEK_PTS = 3;
+
+  // The seven days before Sunday d, Sunday to Saturday, all all-green.
+  function allSevenGreen(d) {
+    for (var z = 1; z <= 7; z++) if (!allGreen(key(addDays(d, -z)))) return false;
+    return true;
+  }
 
   /* The most that can come OUT of the TH8NK in one day: nine, which arrives in
      the 8ANK as three. Three taps of Pull 3. The cap is on the amount leaving
@@ -1039,6 +1059,16 @@
     var n = daysBetween(start, today);
     if (n < 0) { _j8 = res; return res; }
 
+    /* What a Sun-Sat week from NEW_RULES to NEW_RULES3 paid on the Sunday
+       after it: Zunday's 1 if all seven days were all green, and 3 if STOP
+       had no words all week. */
+    function oldWeekEnd(dk, wk) {
+      if (allSevenGreen(parse(dk))) { bank += 1; mv(res, dk, '8ANK', 1, 'Zunday - all 7 days green'); }
+      if (wk >= state.starts.STOP && wordsUsedInWeek(wk) === 0) {
+        bank += WORDS_CLEAN_PTS; mv(res, dk, '8ANK', WORDS_CLEAN_PTS, 'STOP - a week with no words');
+      }
+    }
+
     var d = start;
     for (var i = 0; i <= n; i++) {
       var dk = key(d);
@@ -1081,32 +1111,45 @@
         mv(res, dk, 'TH8NK', +anc.adj.thank || 0, 'balance set by hand');
       }
 
-      /* From NEW_RULES2: 3 every Sunday and 8 on the 1st of each month, both
-         added to what is there - nothing resets. On NEW_RULES itself the
-         week's 8 landed together on that Sunday. Before NEW_RULES a point
-         landed each day, with a second on Sunday for Zunday. */
-      if (dk >= NEW_RULES) {
+      /* From NEW_RULES3: a point every day and a second on Sunday for Zunday,
+         8 on the 1st of each month, 3 on Sunday for a whole Sun-Sat week of
+         all-green days, and 3 on the 1st for a calendar month with no STOP
+         words. Everything is added to what is there - nothing resets.
+
+         The edge: NEW_RULES3's own Sunday pays its daily and Zunday under
+         these rules, and it also still pays what the week of NEW_RULES
+         earned under the old ones - the green-week Zunday and the STOP
+         week. Those two old payouts land only on that one Sunday. */
+      var wk = key(addDays(d, -7));
+      if (dk >= NEW_RULES3) {
+        bank += 1; mv(res, dk, '8ANK', 1, 'daily');
         if (d.getDay() === 0) {
-          var wk = key(addDays(d, -7));
+          bank += 1; mv(res, dk, '8ANK', 1, 'Zunday');
+          if (wk >= NEW_RULES3 && allSevenGreen(d)) {
+            bank += GREEN_WEEK_PTS; mv(res, dk, '8ANK', GREEN_WEEK_PTS, 'all-green week');
+          }
+          if (wk >= NEW_RULES && wk < NEW_RULES3) oldWeekEnd(dk, wk);
+        }
+        if (d.getDate() === 1) {
+          bank += MONTHLY_PTS; mv(res, dk, '8ANK', MONTHLY_PTS, 'the 1st of the month');
+          var mo = new Date(d.getFullYear(), d.getMonth() - 1, 1), mk = key(mo);
+          if (mk >= NEW_RULES3 && mk >= state.starts.STOP && wordsUsedInMonth(mo) === 0) {
+            bank += WORDS_CLEAN_PTS; mv(res, dk, '8ANK', WORDS_CLEAN_PTS, 'month with no words');
+          }
+        }
+      }
+      /* NEW_RULES2 to NEW_RULES3: 3 every Sunday and 8 on the 1st of each
+         month. On NEW_RULES itself the week's 8 landed together on that
+         Sunday. Before NEW_RULES a point landed each day, with a second on
+         Sunday for Zunday. */
+      else if (dk >= NEW_RULES) {
+        if (d.getDay() === 0) {
           if (dk >= NEW_RULES2) {
             bank += SUNDAY_PTS; mv(res, dk, '8ANK', SUNDAY_PTS, 'Sunday ' + SUNDAY_PTS);
-            /* Zunday: the week just gone, Sunday to Saturday, all seven days
-               all green, pays one more on the Sunday after - seven green
-               days and Zunday make eight. Only weeks from NEW_RULES on. */
-            if (wk >= NEW_RULES) {
-              var allSeven = true;
-              for (var z = 0; z < 7 && allSeven; z++) allSeven = allGreen(key(addDays(d, z - 7)));
-              if (allSeven) { bank += 1; mv(res, dk, '8ANK', 1, 'Zunday - all 7 days green'); }
-            }
           } else {
             bank += WEEKLY_PTS; mv(res, dk, '8ANK', WEEKLY_PTS, 'weekly ' + WEEKLY_PTS);
           }
-          /* The STOP week that just ended, Sunday to Saturday, with not one
-             word used. Only a week STOP was running for the whole of, and
-             only one under these rules, counts. */
-          if (wk >= NEW_RULES && wk >= state.starts.STOP && wordsUsedInWeek(wk) === 0) {
-            bank += WORDS_CLEAN_PTS; mv(res, dk, '8ANK', WORDS_CLEAN_PTS, 'STOP - a week with no words');
-          }
+          if (wk >= NEW_RULES) oldWeekEnd(dk, wk);
         }
         if (dk >= NEW_RULES2 && d.getDate() === 1) {
           bank += MONTHLY_PTS; mv(res, dk, '8ANK', MONTHLY_PTS, 'the 1st of the month');
@@ -1182,7 +1225,7 @@
          misses - a bonus that fed back into the balance it was computed from
          could not settle. */
       var green = allGreen(dk);
-      if ((dk < EARN_TO_8ANK || dk >= NEW_RULES) && green) { bank += 1; mv(res, dk, '8ANK', 1, 'all green'); }
+      if ((dk < EARN_TO_8ANK || (dk >= NEW_RULES && dk < NEW_RULES3)) && green) { bank += 1; mv(res, dk, '8ANK', 1, 'all green'); }
       if (dk < NEW_RULES && perfectDay(dk)) {
         if (dk >= EARN_TO_8ANK) { bank += 1; mv(res, dk, '8ANK',  1, 'perfect day'); }
         else                    { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
@@ -1724,7 +1767,7 @@
             ? '<div class="note" style="margin:8px 0 0"><b>' + e.words + '</b> used today.</div>'
             : '') +
           '<div class="note" style="margin:8px 0 0">One in a day stays green; two or more turns the day amber. ' +
-            'A week with none used pays <b>' + WORDS_CLEAN_PTS + '</b> into the 8ANK.</div>' +
+            'A calendar month with none used pays <b>' + WORDS_CLEAN_PTS + '</b> into the 8ANK on the 1st.</div>' +
         '</div>' +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
