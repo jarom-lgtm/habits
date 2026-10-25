@@ -426,7 +426,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v92';
+  var APP_VERSION = 'v93';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -768,6 +768,24 @@
     }
     return n;
   }
+  // The week's words from Sunday up to and including dk.
+  function wordsThrough(dk) {
+    var s = weekStart(parse(dk)), end = parse(dk), n = 0;
+    for (var d = s; daysBetween(d, end) >= 0; d = addDays(d, 1)) {
+      var day = state.days[key(d)];
+      if (day && day.STOP && day.STOP.words) n += day.STOP.words;
+    }
+    return n;
+  }
+  /* From NEW_RULES4 the miss is read off the count rather than set on the
+     tap: a day with words on it that takes the week past the eight. Taking
+     a word back below the eight takes the miss with it; a miss that stands
+     can still be undone by hand until the day is finalized. */
+  function stopOver(dk) {
+    if (dk < NEW_RULES4) return false;
+    var e = get(dk, 'STOP');
+    return !!(e && e.words) && wordsThrough(dk) > WORDS_PER_WEEK;
+  }
 
   /* ---------------- streaks ----------------
      A streak runs from its start date and is broken ONLY by an explicitly
@@ -780,6 +798,7 @@
     if (id === 'JUST8') return !!e.miss || !!e.bankMiss;  // by hand, or the 8ANK below zero
     // A Tank miss recorded before the Tank went still stands on its day.
     if (id === 'FIT') return !!e.miss || (dk < NEW_RULES && !!e.tankMiss && !e.missUndone);
+    if (id === 'STOP') return !!e.miss || (stopOver(dk) && !e.missUndone);
     return !!e.miss;
   }
 
@@ -914,11 +933,11 @@
   /* One pass produces the 8ANK, the TH8NK and every JUST8 miss together, so
      the three can never drift apart.
 
-     Earning, from NEW_RULES3: 1 into the 8ANK every day and 1 more on Sunday
-     for Zunday, 8 on the 1st of every month, 3 on Sunday for a whole Sun-Sat
-     week of all-green days, and 3 on the 1st for a calendar month with no
-     STOP words. Nothing else pays. Days before keep the rules they were
-     earned under - see the walk for each cutover.
+     Earning, from NEW_RULES4: 8 into the 8ANK on the 1st of every month and
+     8 every Sunday, given; 1 for every all-green day and 1 more on Sunday for
+     Zunday if the whole Sun-Sat week before was all green, earned. Nothing
+     else pays. Days before keep the rules
+     they were earned under - see the walk for each cutover.
 
      Deposits: 3 out of the 8ANK become 4 in the TH8NK - a point of interest for
      putting it away. It still only ever comes back at the one-third rate, so
@@ -950,10 +969,18 @@
      all-green week and the clean STOP month as the things to earn. */
   var NEW_RULES3 = '2026-10-25';
 
+  /* The day earning became 8 given on the 1st and 8 given every Sunday,
+     with a point earned for every all-green day and Zunday's 1 for a whole
+     green week - nothing given daily. Green got stricter from here too: on JUST8 a window past 8
+     hours, any CupS or Cups past a point is amber, and on FIT any mark on
+     a letter is. STOP's ninth word became a miss worked out from the
+     count, so the count can go back down. */
+  var NEW_RULES4 = '2026-11-01';
+
   /* Between EARN_TO_8ANK and NEW_RULES, eight all-green days in a row paid 3
      into the 8ANK and the count started again. Kept only for those days. */
   var GREEN_RUN = 8, GREEN_RUN_PTS = 3;
-  var WEEKLY_PTS = 8;                            // each Sunday, NEW_RULES to NEW_RULES2 only
+  var WEEKLY_PTS = 8;                            // each Sunday, NEW_RULES to NEW_RULES2, and from NEW_RULES4
   var SUNDAY_PTS = 3;                            // each Sunday, NEW_RULES2 to NEW_RULES3 only
   var MONTHLY_PTS = 8, GREEN_WEEK_PTS = 3;
 
@@ -986,6 +1013,18 @@
      the JUST8 card's state depends on the bank and the bonus is paid INTO the
      bank - asking the balance whether it had earned a bonus would never
      settle. */
+  /* From NEW_RULES4 JUST8 is amber for a window past the 8 hours, any CupS
+     at all, or Cups costing more than a point (past 3 cups). */
+  function j8Amber(e, dk) {
+    if (dk < NEW_RULES4 || !e) return false;
+    return windowMinutes(e) > WINDOW_MIN || (e.cupS || 0) > 0 || (e.cups || 0) > 3;
+  }
+  // From NEW_RULES4 any mark on any FIT letter is amber; before, see fitOver.
+  function fitAmber(e, dk) {
+    if (dk >= NEW_RULES4) return !!(e.items && Object.keys(e.items).length);
+    return fitOver(e.items).spent;
+  }
+
   function allGreen(dk) {
     var day = state.days[dk];
     if (!day) return false;
@@ -995,10 +1034,10 @@
       if (daysBetween(parse(state.starts[id]), parse(dk)) < 0) return false;   // not begun
       switch (id) {
         case 'H2Only':   if (!e.logged || e.broke) return false; break;
-        case 'STOP':     if (!e.logged || (e.words || 0) >= 2) return false; break;   // two in a day is amber
-        case 'JUST8':    if (!e.eatStart || !e.eatEnd) return false; break;
+        case 'STOP':     if (!e.logged || (e.words || 0) >= 2 || missedOn(dk, 'STOP')) return false; break;   // two in a day is amber
+        case 'JUST8':    if (!e.eatStart || !e.eatEnd || j8Amber(e, dk)) return false; break;
         case 'WERKOUTS': if (!e.done) return false; break;
-        case 'FIT':      if (!e.logged || fitOver(e.items).spent) return false; break;
+        case 'FIT':      if (!e.logged || fitAmber(e, dk)) return false; break;
         default:         if (!e.done) return false; break;   // BED, RAK, NOTE
       }
     }
@@ -1121,7 +1160,21 @@
          earned under the old ones - the green-week Zunday and the STOP
          week. Those two old payouts land only on that one Sunday. */
       var wk = key(addDays(d, -7));
-      if (dk >= NEW_RULES3) {
+      /* From NEW_RULES4, given: 8 on the 1st of each month and 8 every
+         Sunday. Earned, up to 8 a week: a point for every all-green day,
+         paid further down with the day's own green, and Zunday's 1 on Sunday
+         if all seven days of the Sun-Sat week before were all green - no
+         amber, no miss. Nothing else pays. */
+      if (dk >= NEW_RULES4) {
+        if (d.getDate() === 1) { bank += MONTHLY_PTS; mv(res, dk, '8ANK', MONTHLY_PTS, 'the 1st of the month'); }
+        if (d.getDay() === 0) {
+          bank += WEEKLY_PTS; mv(res, dk, '8ANK', WEEKLY_PTS, 'weekly ' + WEEKLY_PTS);
+          if (wk >= NEW_RULES4 && allSevenGreen(d)) {
+            bank += 1; mv(res, dk, '8ANK', 1, 'Zunday - all 7 days green');
+          }
+        }
+      }
+      else if (dk >= NEW_RULES3) {
         bank += 1; mv(res, dk, '8ANK', 1, 'daily');
         if (d.getDay() === 0) {
           bank += 1; mv(res, dk, '8ANK', 1, 'Zunday');
@@ -1225,7 +1278,7 @@
          misses - a bonus that fed back into the balance it was computed from
          could not settle. */
       var green = allGreen(dk);
-      if ((dk < EARN_TO_8ANK || (dk >= NEW_RULES && dk < NEW_RULES3)) && green) { bank += 1; mv(res, dk, '8ANK', 1, 'all green'); }
+      if ((dk < EARN_TO_8ANK || (dk >= NEW_RULES && dk < NEW_RULES3) || dk >= NEW_RULES4) && green) { bank += 1; mv(res, dk, '8ANK', 1, 'all green'); }
       if (dk < NEW_RULES && perfectDay(dk)) {
         if (dk >= EARN_TO_8ANK) { bank += 1; mv(res, dk, '8ANK',  1, 'perfect day'); }
         else                    { th   += 1; mv(res, dk, 'TH8NK', 1, 'perfect day'); }
@@ -1331,6 +1384,8 @@
     Object.keys(state.days).forEach(function (dk) {
       var e = get(dk, 'JUST8');
       if (e && e.missUndone && !ja[dk]) { delete e.missUndone; prune(dk, 'JUST8'); changed = true; }
+      var s = get(dk, 'STOP');
+      if (s && s.missUndone && !stopOver(dk)) { delete s.missUndone; prune(dk, 'STOP'); changed = true; }
     });
     if (changed) { _j8 = null; save(); }
   }
@@ -1365,8 +1420,8 @@
       case 'H2Only':   return e.logged ? 'ok' : '';
       // One word in a day stays green; two or more is amber - not a miss.
       case 'STOP':     return (e.words || 0) >= 2 ? 'warn' : (e.logged ? 'ok' : '');
-      case 'FIT':      return fitOver(e.items).spent ? 'warn' : (e.logged ? 'ok' : '');
-      case 'JUST8':    return (e.eatStart && e.eatEnd) ? 'ok' : (e.eatStart || e.cups || e.cupS ? 'warn' : '');
+      case 'FIT':      return fitAmber(e, dk) ? 'warn' : (e.logged ? 'ok' : '');
+      case 'JUST8':    return j8Amber(e, dk) ? 'warn' : (e.eatStart && e.eatEnd) ? 'ok' : (e.eatStart || e.cups || e.cupS ? 'warn' : '');
       case 'WERKOUTS': return e.done ? 'ok' : ((e.logged && werkMin(e) < WERK_FULL) ? 'warn' : '');   // short of a full one is amber until finished or marked missed
       default:         return e.done ? 'ok' : '';
     }
@@ -1637,10 +1692,17 @@
       ? '<button class="btn danger" data-act="miss" style="box-shadow:inset 0 0 0 2px var(--danger)">Missed &mdash; undo</button>'
       : '<button class="btn danger" data-act="miss">Miss</button>';
   }
-  /* The miss the numbers decide - only JUST8's 8ANK below zero now - with a
-     way to take it back before the day is finalized. Undoing keeps the
-     shortfall on the balance to be fixed. */
+  /* The miss the numbers decide - JUST8's 8ANK below zero, and from
+     NEW_RULES4 STOP past the week's eight - with a way to take it back
+     before the day is finalized. Undoing JUST8's keeps the shortfall on the
+     balance to be fixed. */
   function autoMissBtn(dk, id, e) {
+    if (id === 'STOP') {
+      if (!stopOver(dk)) return '';
+      return '<div class="btns" style="margin-bottom:8px">' + (e.missUndone
+        ? '<button class="btn ghost" data-act="automiss">Miss undone &middot; put it back</button>'
+        : '<button class="btn danger" data-act="automiss">Past the ' + WORDS_PER_WEEK + ' &mdash; missed &middot; undo</button>') + '</div>';
+    }
     if (!j8().auto[dk]) return '';
     return '<div class="btns" style="margin-bottom:8px">' + (e.missUndone
       ? '<button class="btn ghost" data-act="automiss">Miss undone &mdash; shortfall still owed &middot; put it back</button>'
@@ -1753,22 +1815,23 @@
     else if (id === 'STOP') {
       var wUsed = wordsUsedInWeek(dk);
       html = head('STOP', when) +
-        /* Built the same way as the hairs: one button, counted across the
-           week, and every tap final. The difference is what happens once the
-           eight are gone - the next one is the miss, set on the tap so it can
-           still be undone with Miss until the day is finalized. */
-        '<div class="field"><label>Words &mdash; ' + WORDS_PER_WEEK + ' a week, resets Sunday</label>' +
-          '<div class="btns" style="margin-top:0">' +
-            (wUsed < WORDS_PER_WEEK
-              ? '<button class="btn ghost" data-act="word">Used one &mdash; ' + wUsed + ' of ' + WORDS_PER_WEEK + ' used</button>'
-              : '<button class="btn danger" data-act="word">One more &mdash; that&rsquo;s a miss</button>') +
+        /* Stepped up and down like the Cups, so a mis-tap can be taken back.
+           The number is today's; the week's total sits under it. Past the
+           eight is a miss - from NEW_RULES4 read off the count, so stepping
+           back down clears it; before, set on the tap. */
+        '<div class="field"><label>Words today &mdash; ' + WORDS_PER_WEEK + ' a week, resets Sunday</label>' +
+          '<div class="stepper">' +
+            '<button data-act="word-">&minus;</button>' +
+            '<div class="val">' + (e.words || 0) + '</div>' +
+            '<button data-act="word">+</button>' +
           '</div>' +
-          ((e.words || 0)
-            ? '<div class="note" style="margin:8px 0 0"><b>' + e.words + '</b> used today.</div>'
-            : '') +
+          '<div class="note" style="margin:8px 0 0"><b>' + wUsed + '</b> of ' + WORDS_PER_WEEK + ' used this week' +
+            (wUsed > WORDS_PER_WEEK ? ' &mdash; past the ' + WORDS_PER_WEEK
+              : wUsed === WORDS_PER_WEEK ? ' &mdash; the next one is a miss' : '') + '.</div>' +
           '<div class="note" style="margin:8px 0 0">One in a day stays green; two or more turns the day amber. ' +
-            'A calendar month with none used pays <b>' + WORDS_CLEAN_PTS + '</b> into the 8ANK on the 1st.</div>' +
+            'More than ' + WORDS_PER_WEEK + ' in the week is a miss.</div>' +
         '</div>' +
+        autoMissBtn(dk, 'STOP', e) +
         '<div class="btns">' + missBtn(e) + doneBtn() + '</div>';
     }
 
@@ -2143,7 +2206,8 @@
         if (a === 'automiss') {
           e.missUndone = !e.missUndone;
           commit(true);
-          toast(e.missUndone ? id + ' miss undone - the shortfall is still owed' : id + ' miss put back'); return;
+          toast(!e.missUndone ? id + ' miss put back'
+                : id === 'STOP' ? 'STOP miss undone' : id + ' miss undone - the shortfall is still owed'); return;
         }
         if (a === 'miss')  {
           var when = parse(dk).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -2193,17 +2257,25 @@
           commit(true);
           toast('W frozen for the rest of today'); return;
         }
-        /* Final like the hairs. Past the eight it is the miss, set here on
-           the tap rather than recomputed, so undoing it with Miss sticks. */
+        /* Past the eight it is the miss. From NEW_RULES4 that is read off
+           the count (see stopOver); before it, it was set here on the tap. */
         if (a === 'word') {
           var wasUsed = wordsUsedInWeek(dk);
           e.words = (e.words || 0) + 1;
           e.logged = true;
-          if (wasUsed >= WORDS_PER_WEEK) { e.miss = true; e.done = false; }
+          if (wasUsed >= WORDS_PER_WEEK && dk < NEW_RULES4) { e.miss = true; e.done = false; }
           commit(true);
           var wu = wasUsed + 1;
           toast(wu > WORDS_PER_WEEK ? 'Past the ' + WORDS_PER_WEEK + ' - STOP missed'
                                     : wu + ' of ' + WORDS_PER_WEEK + ' used this week');
+          return;
+        }
+        if (a === 'word-') {
+          if (!(e.words || 0)) { toast('None to take back today'); return; }
+          e.words -= 1;
+          e.logged = true;
+          commit(true);
+          toast(wordsUsedInWeek(dk) + ' of ' + WORDS_PER_WEEK + ' used this week');
           return;
         }
         if (a === 'hair') {
