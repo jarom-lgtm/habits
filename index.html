@@ -426,7 +426,7 @@
      gets published - that lives in HEALTH.md on the machine, not on the web.
      ========================================================================== */
 
-  var APP_VERSION = 'v94';
+  var APP_VERSION = 'v95';
 
   /* Adding ?sandbox to the address gives a completely separate practice copy:
      its own storage, seeded with sample entries, which the real tracking can
@@ -2555,8 +2555,29 @@
     return parse(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
+  /* Days in a row with every habit green, by each day's own rules. Today
+     joins the run once it is all green; a today not yet green leaves the
+     run standing rather than breaking it. Days only - Zunday is not one. */
+  function greenRuns() {
+    var first = HABITS.reduce(function (m, h) { return state.starts[h.id] < m ? state.starts[h.id] : m; }, key(today));
+    var run = 0, best = 0, cur = 0;
+    for (var d = parse(first); daysBetween(d, today) >= 0; d = addDays(d, 1)) {
+      var dk = key(d), g = allGreen(dk);
+      if (g) { run++; if (run > best) best = run; }
+      if (dk === key(today)) cur = run;            // today green or not, the run so far stands
+      else if (!g) run = 0;
+    }
+    return { cur: cur, best: best };
+  }
+
   function openStreaks() {
+    var gr = greenRuns();
     sheetEl.innerHTML = head('Streaks', 'Tap one for its full history') +
+      '<div class="srow">' +
+        '<span class="sn"><b>All green</b><small>days in a row, every habit green</small></span>' +
+        '<span class="sv"><b>' + gr.cur.toLocaleString() + '</b><small>now</small></span>' +
+        '<span class="sv" style="margin-left:12px"><b>' + gr.best.toLocaleString() + '</b><small>best</small></span>' +
+      '</div>' +
       HABITS.map(function (h) {
         var f = streakFacts(h.id), breaks = f.misses;
         return '<button class="srow" data-hab="' + h.id + '">' +
